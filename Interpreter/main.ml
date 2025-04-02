@@ -207,6 +207,80 @@ let run_tests ~with_type_check ~with_interpret =
   (*  Testcases Completed  *)
   print_endline "Test cases completed."
 
+(* Test cases specifically for the type checker *)
+let run_type_check_tests () =
+  print_endline "Running type checker test cases...\n";
+  
+  (* Helper function for running type check tests *)
+  let test_type_check code expected_result =
+    try
+      let ast = parse_string code in
+      let result = type_check ast in
+      let success = (result = expected_result) || 
+                    (expected_result = "error" && is_error_message result) in
+      Printf.printf "Test: %s\nResult: %s\nExpected: %s\nStatus: %s\n\n"
+        (if String.length code > 50 then String.sub code 0 47 ^ "..." else code)
+        result
+        (if expected_result = "error" then "Error expected" else expected_result)
+        (if success then "✅ PASS" else "❌ FAIL")
+    with
+    | Failure msg -> 
+        let success = expected_result = "error" in
+        Printf.printf "Test: %s\nResult: Error: %s\nExpected: %s\nStatus: %s\n\n"
+          (if String.length code > 50 then String.sub code 0 47 ^ "..." else code)
+          msg
+          (if expected_result = "error" then "Error expected" else expected_result)
+          (if success then "✅ PASS" else "❌ FAIL")
+  in
+  
+  (* Basic declarations and type consistency *)
+  test_type_check "let x := 5;" "Program type checks successfully";
+  test_type_check "let x := 5; x := 10;" "Program type checks successfully";
+  test_type_check "let x := 5; x := 3.14;" "error"; (* Type mismatch *)
+  
+  (* Variable redeclaration checks *)
+  test_type_check "let x := 5; let x := 10;" "error"; (* Redeclaration not allowed *)
+  test_type_check "let x := true; let y := 10;" "Program type checks successfully";
+  
+  (* Loop iterator variable tests *)
+  test_type_check "for i := 1 to 5 do { let x := i; } end" "Program type checks successfully";
+  test_type_check "let i := 10; for i := 1 to 5 do { Print(i); } end" "error"; (* Iterator shadows existing variable *)
+  test_type_check "for i := 1 to 5 do {} end; let i := 10;" "Program type checks successfully"; (* i no longer in scope *)
+  
+  (* Nested scopes *)
+  test_type_check "if true then { let x := 5; } else { let y := 10; } end" "Program type checks successfully";
+  test_type_check "let x := 5; if x > 0 then { let y := 10; } end; Print(y);" "error"; (* y not in scope *)
+  
+  (* Type checking for operations *)
+  test_type_check "let x := 5 + 10;" "Program type checks successfully";
+  test_type_check "let x := 5 + 3.14;" "error"; (* Type mismatch in addition *)
+  test_type_check "let v1 := 3\n[1,2,3]; let v2 := 3\n[4,5,6]; let v3 := v1 + v2;" "Program type checks successfully";
+  test_type_check "let v1 := 3\n[1,2,3]; let v2 := 2\n[4,5]; let v3 := v1 + v2;" "error"; (* Vector dimension mismatch *)
+  
+  (* Matrix operations *)
+  test_type_check "let m1 := 2,2\n[[1,2],[3,4]]; let m2 := 2,2\n[[5,6],[7,8]]; let m3 := m1 + m2;" "Program type checks successfully";
+  test_type_check "let m1 := 2,2\n[[1,2],[3,4]]; let m2 := 3,2\n[[5,6],[7,8],[9,10]]; let m3 := m1 + m2;" "error"; (* Matrix dimension mismatch *)
+  
+  (* Mixed operations *)
+  test_type_check "let x := 5; let y := true; let z := x + y;" "error"; (* Cannot add int and bool *)
+  test_type_check "let x := 5; let y := true; if y then { let z := x + 10; } end" "Program type checks successfully";
+  
+  (* Let declaration and assignment semantics *)
+  test_type_check "let x := 10; let y := x + 5;" "Program type checks successfully";
+  test_type_check "x := 10;" "error"; (* Assignment to undeclared variable *)
+  test_type_check "let x := 10; y := x + 5;" "error"; (* Assignment to undeclared variable *)
+  
+  (* Function application and type checking *)
+  test_type_check "let v := 3\n[1,2,3]; let m := mag(v);" "error"; (* mag not a function, should use Magnitude(v) *)
+  test_type_check "let v := 3\n[1,2,3]; let m := Magnitude(v);" "Program type checks successfully";
+  
+  (* Vector/Matrix access *)
+  test_type_check "let v := 3\n[1,2,3]; let x := v[0];" "Program type checks successfully";
+  test_type_check "let v := 3\n[1,2,3]; let x := v[true];" "error"; (* Index must be int *)
+  test_type_check "let m := 2,2\n[[1,2],[3,4]]; let x := m[0,1];" "Program type checks successfully";
+  
+  print_endline "Type checker test cases completed."
+
 (* Main function *)
 let () =
   let process_file = ref true in
@@ -214,6 +288,7 @@ let () =
   let with_type_check = ref false in
   let type_check_only = ref false in
   let interpret = ref false in
+  let run_type_tests = ref false in  (* New flag for running type checker tests *)
   
   Arg.parse [
     ("-test", Arg.Set run_test_cases, "Run built-in test cases");
@@ -221,7 +296,11 @@ let () =
     ("-typecheck", Arg.Set with_type_check, "Enable type checking for tests");
     ("-check-only", Arg.Set type_check_only, "Only perform type checking on input file");
     ("-interpret", Arg.Set interpret, "Interpret the program after type checking");
+    ("-test-type", Arg.Set run_type_tests, "Run type checker specific tests");  (* New option *)
   ] (fun _ -> ()) "Matrix/Vector Language Parser and Interpreter";
+  
+  (* Run type checker tests if requested *)
+  if !run_type_tests then run_type_check_tests();
   
   if !run_test_cases then run_tests ~with_type_check:!with_type_check ~with_interpret:!interpret;
   
