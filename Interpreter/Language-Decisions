@@ -1,0 +1,2 @@
+Variable Cannot be decl again with same name
+If var decl then same type will only update it

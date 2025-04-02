@@ -5,6 +5,7 @@
 /* Token declarations */
 %token INPUT PRINT
 // %token <string> IFILE PFILE
+%token LET  /* New token for variable declaration */
 %token IF THEN ELSE FOR TO WHILE DO END
 %token IPLUS FPLUS IMINUS FMINUS ITIMES FTIMES IDIVIDE FDIVIDE IMODULO FMODULO ABS POWER INT_TO_FLOAT
 %token ASSIGN
@@ -55,6 +56,7 @@ stmt_list:
 
 stmt:
   | expr SEMICOLON { ExprStmt($1) }
+  | LET ID ASSIGN expr SEMICOLON { DeclareStmt($2, $4) }  /* New variable declaration */
   | ID ASSIGN expr SEMICOLON { AssignStmt($1, $3) }
   | IF expr THEN stmt_block ELSE stmt_block END { IfStmt($2, $4, $6) }
   | IF expr THEN stmt_block END { IfStmt($2, $4, []) }

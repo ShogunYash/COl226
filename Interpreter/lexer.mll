@@ -46,7 +46,7 @@
 
 (* Regular expression macros *)
 let whitespace = [' ' '\t' '\r']
-let newline = '\r' | '\n' | "\r\n" | "\\n"
+let newline = '\n' | "\r\n" | "\\n"
 let digit = ['0'-'9']
 let alpha = ['a'-'z' 'A'-'Z']
 let alnum = alpha | digit | '_' 
@@ -60,11 +60,12 @@ let float_literal = digit+ '.' digit* exp? | digit+ exp | digit* '.' digit+ exp?
 rule token = parse
   (* Standard tokens; flushing pending tokens is handled in get_all_tokens *)  
   | whitespace+ { token lexbuf }
-  | newline+ {  incr line_num; token lexbuf }
+  | newline+    {  incr line_num; token lexbuf }
   | "//" [^'\n']* { token lexbuf }
   | "/*"        { comment 0 lexbuf }
   | "Input"     { INPUT }
   | "Print"     { PRINT }
+  | "let"       { LET }  (* New token for variable declaration *)
   | "if"        { IF }
   | "then"      { THEN }
   | "else"      { ELSE }
@@ -83,7 +84,7 @@ rule token = parse
   | "-."        { FMINUS }
   | "*."        { FTIMES }
   | "/."        { FDIVIDE }
-  | "pow"        { POWER } 
+  | "pow"       { POWER } 
   | "abs"       { ABS }
   | ":="        { ASSIGN }
   | "="         { EQ }

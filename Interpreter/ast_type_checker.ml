@@ -15,15 +15,36 @@ type typ =
   | TFMatrix of int * int
   | TUnit
 
-(* Type environment to track variable types *)
+(* Type environment to track variable types and declarations *)
 module StringMap = Map.Make(String)
-type env = typ StringMap.t
+type env = {
+  types: typ StringMap.t;
+  declared: bool StringMap.t; (* Track whether a variable has been declared *)
+}
 
 (* Initial empty environment *)
-let empty_env = StringMap.empty
+let empty_env = {
+  types = StringMap.empty;
+  declared = StringMap.empty;
+}
 
-(* Environment extension function *)
-let extend env var typ = StringMap.add var typ env
+(* Environment operations *)
+let lookup_type env var =
+  match StringMap.find_opt var env.types with
+  | Some t -> t
+  | None -> raise (Wrong (Var var))
+
+let declare_var env var typ =
+  (* Check if variable is already declared *)
+  if StringMap.mem var env.declared then
+    raise (Wrong (Var var))
+  else
+    { types = StringMap.add var typ env.types;
+      declared = StringMap.add var true env.declared }
+
+let remove_var env var =
+  { types = StringMap.remove var env.types;
+    declared = StringMap.remove var env.declared }
 
 (* Pretty-print types for error reporting *)
 let string_of_type = function
@@ -40,10 +61,7 @@ let string_of_type = function
 (* Type-check an expression with exception-based error handling *)
 let rec type_check_expr env = function
   | Empty -> TUnit
-  | Var name as e -> 
-      (match StringMap.find_opt name env with
-       | Some t -> t
-       | None -> raise (Wrong e))
+  | Var name -> lookup_type env name
   
   (* Literals *)
   | IntLit _ -> TInt
@@ -196,9 +214,25 @@ let rec type_check_stmt env = function
       ignore (type_check_expr env e);
       env
   
-  | AssignStmt(var, e) ->
+  | DeclareStmt(var, e) ->
+      (* For let declaration, check if variable exists *)
       let typ = type_check_expr env e in
-      extend env var typ
+      if StringMap.mem var env.declared then
+        raise (Wrong (Var var)) (* Variable already declared - error *)
+      else
+        declare_var env var typ
+  
+  | AssignStmt(var, e) ->
+      (* For assignment, check that variable exists and types match *)
+      let new_type = type_check_expr env e in
+      if not (StringMap.mem var env.declared) then
+        raise (Wrong (Var var)) (* Variable not declared *)
+      else
+        let current_type = lookup_type env var in
+        if current_type = new_type then
+          env (* Types match, keep the environment unchanged *)
+        else
+          raise (Wrong e) (* Type mismatch in assignment *)
   
   | IfStmt(cond, then_branch, else_branch) ->
       let tcond = type_check_expr env cond in
@@ -213,9 +247,15 @@ let rec type_check_stmt env = function
       let tstart = type_check_expr env start in
       let tfinish = type_check_expr env finish in
       if tstart = TInt && tfinish = TInt then
-        let loop_env = extend env var TInt in
+        (* Check if loop variable already exists in outer scope *)
+        if StringMap.mem var env.declared then
+          raise (Wrong (Var var)) (* Cannot reuse an existing variable as loop counter *)
+        else
+          (* Create a new scope with the loop variable *)
+          let loop_env = declare_var env var TInt in
           let _ = type_check_stmts loop_env body in
-          env
+          (* Discard the loop variable after the loop ends *)
+          remove_var env var
       else
         raise (Wrong (if tstart <> TInt then start else finish))
   
@@ -237,7 +277,7 @@ let rec type_check_stmt env = function
           env
       | Var(name) ->
           (* Input(var) where var is a variable containing a filename *)
-          (match StringMap.find_opt name env with
+          (match StringMap.find_opt name env.types with
           | Some TString -> env  (* Variable should contain a string (filename) *)
           | _ -> raise (Wrong e))
       | _ -> raise (Wrong e)
@@ -264,8 +304,16 @@ let type_check (Program stmts) =
     let _ = type_check_stmts empty_env stmts in
     "Program type checks successfully"
   with
-  | Wrong e -> Printf.sprintf "Type error in expression: %s" (string_of_expr e)
-  | e -> Printf.sprintf "Error: %s" (Printexc.to_string e)
+  | Wrong (Var name) -> 
+      (* Special case for variable errors *)
+      if StringMap.mem name empty_env.declared then
+        Printf.sprintf "Type error: Variable '%s' is already declared" name
+      else
+        Printf.sprintf "Type error: Undefined variable '%s'" name
+  | Wrong e -> 
+      Printf.sprintf "Type error in expression: %s" (string_of_expr e)
+  | e -> 
+      Printf.sprintf "Error: %s" (Printexc.to_string e)
 
 (* Main function to run the type checker *)
 let run_type_checker ast =

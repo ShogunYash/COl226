@@ -57,6 +57,7 @@ type expr =
 (** Statement types *)
 type stmt =
   | ExprStmt of expr                        (** Expression statement *)
+  | DeclareStmt of string * expr            (** Variable declaration with let (x := expr) *)
   | AssignStmt of string * expr             (** Assignment (x := expr) *)
   | IfStmt of expr * stmt list * stmt list  (** If statement (condition, then-branch, else-branch) *)
   | ForStmt of string * expr * expr * stmt list (** For loop (counter, start, end, body) *)
@@ -120,6 +121,8 @@ let rec string_of_expr expr =
 let rec string_of_stmt stmt =
   match stmt with
   | ExprStmt expr -> "ExprStmt (" ^ string_of_expr expr ^ ")"
+  | DeclareStmt (var, expr) ->
+      "DeclareStmt (\"" ^ var ^ "\", " ^ string_of_expr expr ^ ")"
   | AssignStmt (var, expr) ->
       "AssignStmt (\"" ^ var ^ "\", " ^ string_of_expr expr ^ ")"
   | IfStmt (cond, then_stmts, []) ->

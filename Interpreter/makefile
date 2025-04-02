@@ -1,9 +1,11 @@
-# Use ocamlfind to handle packages
-OCAMLFIND = ocamlfind
-OCAMLC = $(OCAMLFIND) ocamlc -package str
+# Makefile for the Matrix/Vector Language Parser and Interpreter
+
+# OCaml compiler and flags
+OCAMLC = ocamlfind ocamlc -package str
 OCAMLLEX = ocamllex
 OCAMLYACC = ocamlyacc
-OCAMLDEP = $(OCAMLFIND) ocamldep -package str
+OCAMLDEP = ocamlfind ocamldep -package str
+OCAMLFLAGS = -g -w A
 
 # Source files
 ML_SOURCES = ast.ml parser.ml lexer.ml ast_type_checker.ml interpreter.ml main.ml
@@ -26,6 +28,14 @@ all: $(EXEC)
 run: $(EXEC)
 	./$(EXEC)
 
+# Run with interpreter enabled
+run_interpret: $(EXEC)
+	./$(EXEC) -interpret
+
+# Test with interpreter
+test_interpret: $(EXEC)
+	./$(EXEC) -test -interpret
+
 # Bytecode executable
 $(EXEC): $(CMO_FILES)
 	$(OCAMLC) -o $(EXEC) -linkpkg $(CMO_FILES)
@@ -40,10 +50,10 @@ parser.ml parser.mli: parser.mly
 
 # Generic rules for OCaml compilation
 %.cmo: %.ml
-	$(OCAMLC) -c $<
+	$(OCAMLC) $(OCAMLFLAGS) -c $<
 
 %.cmi: %.mli
-	$(OCAMLC) -c $<
+	$(OCAMLC) $(OCAMLFLAGS) -c $<
 
 # Clean target
 clean:
@@ -57,4 +67,4 @@ depend: $(LEXER_GEN) $(PARSER_GEN) $(ML_SOURCES) $(MLI_SOURCES)
 -include .depend
 
 # Phony targets
-.PHONY: all clean depend run
+.PHONY: all clean depend run run_interpret test_interpret
