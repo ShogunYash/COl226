@@ -16,6 +16,7 @@ type value =
 (* Exception for runtime errors *)
 exception Runtime_error of string
 
+
 (* Environment for variable values *)
 module StringMap = Map.Make(String)
 type runtime_env = {
@@ -49,6 +50,307 @@ let update_var env name value =
   else
     raise (Runtime_error ("Cannot assign to undeclared variable: " ^ name))
 
+(* New scope management functions *)
+
+(* Create a new environment that inherits from a parent environment *)
+let enter_scope env = {
+  values = env.values;
+  declared = env.declared;
+}
+
+(* Merge a child environment into its parent environment *)
+(* Only variables that already exist in the parent are updated *)
+let exit_scope parent_env child_env =
+  (* Update values in parent that were modified in child scope *)
+  let update_var var_name value parent_env =
+    if StringMap.mem var_name parent_env.declared then
+      (* Variable exists in parent, update it *)
+      { parent_env with values = StringMap.add var_name value parent_env.values }
+    else
+      (* Variable was declared in child scope, ignore it *)
+      parent_env
+  in
+  
+  (* Update all variables in parent that were modified in child *)
+  StringMap.fold update_var child_env.values parent_env
+
+
+(* Common helper functions for matrix and vector operations *)
+
+(* Get a specific column from a matrix *)
+let get_column mat j =
+  List.map (fun row -> 
+    let rec get_element lst index =
+      match lst with
+      | [] -> raise (Runtime_error "Column index out of bounds")
+      | x::xs -> if index = 0 then x else get_element xs (index-1)
+    in
+    get_element row j
+  ) mat
+
+(* Get a specific row from a matrix *)
+let get_row mat i =
+  let rec find_row mat index =
+    match mat with
+    | [] -> raise (Runtime_error "Row index out of bounds")
+    | x::xs -> if index = 0 then x else find_row xs (index-1)
+  in
+  find_row mat i
+
+(* Build a transposed matrix from the original matrix - moved to module level *)
+let build_transpose mat c =
+  let rec aux j acc =
+    if j >= c then List.rev acc
+    else aux (j+1) ((get_column mat j)::acc)
+  in
+  aux 0 []
+
+(* Dot product for integer vectors *)
+let dot_product_int v1 v2 =
+  let rec compute v1 v2 acc =
+    match v1, v2 with
+    | [], [] -> acc
+    | x::xs, y::ys -> compute xs ys (acc + (x * y))
+    | _, _ -> raise (Runtime_error "Vector dimension mismatch in dot product")
+  in
+  compute v1 v2 0
+
+(* Dot product for float vectors *)
+let dot_product_float v1 v2 =
+  let rec compute v1 v2 acc =
+    match v1, v2 with
+    | [], [] -> acc
+    | x::xs, y::ys -> compute xs ys (acc +. (x *. y))
+    | _, _ -> raise (Runtime_error "Vector dimension mismatch in dot product")
+  in
+  compute v1 v2 0.0
+
+(* Matrix multiplication for integer matrices *)
+let multiply_int_matrices r1 c1 mat1 r2 c2 mat2 =
+  if c1 <> r2 then 
+    raise (Runtime_error "Matrix multiplication dimension mismatch")
+  else
+    (* Compute result matrix *)
+    let rec compute_result_matrix i acc =
+      if i = r1 then List.rev acc
+      else
+        let row_i = get_row mat1 i in
+        
+        (* Compute row i of result *)
+        let rec compute_row j row_acc =
+          if j = c2 then List.rev row_acc
+          else
+            let col_j = get_column mat2 j in
+            compute_row (j+1) ((dot_product_int row_i col_j)::row_acc)
+        in
+        
+        let result_row = compute_row 0 [] in
+        compute_result_matrix (i+1) (result_row::acc)
+    in
+    
+    VIMatrix(r1, c2, compute_result_matrix 0 [])
+
+(* Matrix multiplication for float matrices *)
+let multiply_float_matrices r1 c1 mat1 r2 c2 mat2 =
+  if c1 <> r2 then 
+    raise (Runtime_error "Matrix multiplication dimension mismatch")
+  else
+    (* Compute result matrix *)
+    let rec compute_result_matrix i acc =
+      if i = r1 then List.rev acc
+      else
+        let row_i = get_row mat1 i in
+        
+        (* Compute row i of result *)
+        let rec compute_row j row_acc =
+          if j = c2 then List.rev row_acc
+          else
+            let col_j = get_column mat2 j in
+            compute_row (j+1) ((dot_product_float row_i col_j)::row_acc)
+        in
+        
+        let result_row = compute_row 0 [] in
+        compute_result_matrix (i+1) (result_row::acc)
+    in
+    
+    VFMatrix(r1, c2, compute_result_matrix 0 [])
+
+(* Matrix-vector multiplication for integers - returns a column matrix *)
+let multiply_matrix_vector_int r c mat vec n =
+  if c <> n then 
+    raise (Runtime_error "Matrix-vector dimension mismatch")
+  else
+    (* For each row of matrix, compute dot product with vector and make a single-element row *)
+    let result = List.map (fun row -> [dot_product_int row vec]) mat in
+    VIMatrix(r, 1, result)
+
+(* Matrix-vector multiplication for floats - returns a column matrix *)
+let multiply_matrix_vector_float r c mat vec n =
+  if c <> n then 
+    raise (Runtime_error "Matrix-vector dimension mismatch")
+  else
+    let result = List.map (fun row -> [dot_product_float row vec]) mat in
+    VFMatrix(r, 1, result)
+
+(* Vector-matrix multiplication for integers - returns n×c matrix *)
+let multiply_vector_matrix_int n vec r c mat =
+  if r <> 1 then 
+    raise (Runtime_error "Vector-matrix multiplication requires matrix with 1 row")
+  else
+    (* For each element in vector, multiply by matrix row to create a result row *)
+    let mat_row = List.hd mat in
+    let result = List.map (fun v -> List.map (fun m -> v * m) mat_row) vec in
+    VIMatrix(n, c, result)
+
+(* Vector-matrix multiplication for floats - returns n×c matrix *)
+let multiply_vector_matrix_float n vec r c mat =
+  if r <> 1 then 
+    raise (Runtime_error "Vector-matrix multiplication requires matrix with 1 row")
+  else
+    let mat_row = List.hd mat in
+    let result = List.map (fun v -> List.map (fun m -> v *. m) mat_row) vec in
+    VFMatrix(n, c, result)
+
+(* Scalar multiplication for integer matrices *)
+let scalar_mul_int_matrix r c mat scalar =
+  let mul_row row = List.map (fun x -> x * scalar) row in
+  VIMatrix(r, c, List.map mul_row mat)
+
+(* Scalar multiplication for float matrices *)
+let scalar_mul_float_matrix r c mat scalar =
+  let mul_row row = List.map (fun x -> x *. scalar) row in
+  VFMatrix(r, c, List.map mul_row mat)
+
+(* Helper functions for common list operations *)
+let rec map_with_acc f lst acc =
+  match lst with
+  | [] -> List.rev acc
+  | x::xs -> map_with_acc f xs ((f x) :: acc)
+
+let map f lst = map_with_acc f lst []
+
+(* Helper functions for list operations with tail recursion *)
+let rec fold_left f acc lst =
+  match lst with
+  | [] -> acc
+  | x::xs -> fold_left f (f acc x) xs
+
+let rec get_nth lst i =
+  match lst with
+  | [] -> raise (Runtime_error "Index out of bounds")
+  | x::xs -> if i = 0 then x else get_nth xs (i-1)
+
+(* Vector arithmetic with tail recursion *)
+let vector_zipWith f v1 v2 =
+  let rec aux v1 v2 acc =
+    match v1, v2 with
+    | [], [] -> List.rev acc
+    | x::xs, y::ys -> aux xs ys ((f x y) :: acc)
+    | _, _ -> raise (Runtime_error "Vector dimension mismatch")
+  in
+  aux v1 v2 []
+
+let dot_product v1 v2 init_val op =
+  let rec aux v1 v2 acc =
+    match v1, v2 with
+    | [], [] -> acc
+    | x::xs, y::ys -> aux xs ys (op acc (op x y))
+    | _, _ -> raise (Runtime_error "Vector dimension mismatch")
+  in
+  aux v1 v2 init_val
+
+let scalar_mul lst scalar op =
+  map (fun x -> op scalar x) lst
+
+(* Matrix arithmetic with tail recursion *)
+let matrix_zipWith f m1 m2 =
+  let rec aux_rows m1 m2 acc =
+    match m1, m2 with
+    | [], [] -> List.rev acc
+    | row1::rest1, row2::rest2 -> 
+        aux_rows rest1 rest2 ((vector_zipWith f row1 row2) :: acc)
+    | _, _ -> raise (Runtime_error "Matrix dimension mismatch")
+  in
+  aux_rows m1 m2 []
+
+(* Get the submatrix by removing row i and column j *)
+let get_submatrix mat i j =
+  List.mapi (fun row_idx row ->
+    if row_idx <> i then
+      List.mapi (fun col_idx elem -> (col_idx, elem)) row
+      |> List.filter (fun (col_idx, _) -> col_idx <> j)
+      |> List.map snd
+    else
+      []
+  ) mat
+  |> List.filter (fun row -> row <> [])
+
+(* Calculate determinant for integer matrix using cofactor expansion *)
+let rec calculate_int_determinant mat =
+  let n = List.length mat in
+  if n = 1 then
+    (* Base case: 1x1 matrix *)
+    List.hd (List.hd mat)
+  else if n = 2 then
+    (* Base case: 2x2 matrix - direct formula for efficiency *)
+    let a = List.hd (List.hd mat) in
+    let b = List.nth (List.hd mat) 1 in
+    let c = List.hd (List.nth mat 1) in
+    let d = List.nth (List.nth mat 1) 1 in
+    a * d - b * c
+  else
+    (* Recursive case: use cofactor expansion along first row *)
+    let rec sum_cofactors j acc =
+      if j >= n then acc
+      else
+        let element = List.nth (List.hd mat) j in
+        let sign = if j mod 2 = 0 then 1 else -1 in
+        let submat = get_submatrix mat 0 j in
+        let cofactor = sign * element * (calculate_int_determinant submat) in
+        sum_cofactors (j+1) (acc + cofactor)
+    in
+    sum_cofactors 0 0
+
+(* Calculate determinant for float matrix using cofactor expansion *)
+let rec calculate_float_determinant mat =
+  let n = List.length mat in
+  if n = 1 then
+    (* Base case: 1x1 matrix *)
+    List.hd (List.hd mat)
+  else if n = 2 then
+    (* Base case: 2x2 matrix - direct formula for efficiency *)
+    let a = List.hd (List.hd mat) in
+    let b = List.nth (List.hd mat) 1 in
+    let c = List.hd (List.nth mat 1) in
+    let d = List.nth (List.nth mat 1) 1 in
+    a *. d -. b *. c
+  else
+    (* Recursive case: use cofactor expansion along first row *)
+    let rec sum_cofactors j acc =
+      if j >= n then acc
+      else
+        let element = List.nth (List.hd mat) j in
+        let sign = if j mod 2 = 0 then 1.0 else -1.0 in
+        let submat = get_submatrix mat 0 j in
+        let cofactor = sign *. element *. (calculate_float_determinant submat) in
+        sum_cofactors (j+1) (acc +. cofactor)
+    in
+    sum_cofactors 0 0.0
+
+(* Main determinant function for integer matrices *)
+let determinant_int_matrix r c mat =
+  if r <> c then
+    raise (Runtime_error "Determinant requires a square matrix")
+  else
+    VInt (calculate_int_determinant mat)
+
+(* Main determinant function for float matrices *)
+let determinant_float_matrix r c mat =
+  if r <> c then
+    raise (Runtime_error "Determinant requires a square matrix")
+  else
+    VFloat (calculate_float_determinant mat)
+
 (* Pretty-print values *)
 let rec string_of_value = function
   | VInt i -> string_of_int i
@@ -73,38 +375,42 @@ let rec string_of_value = function
         "[" ^ elements ^ "]"
       ) mat |> String.concat ", " in
       Printf.sprintf "%d,%d\n[%s]" r c rows
-  | VUnit -> "()"
+  | VUnit -> "()"  (* Fixed: Return the string "()" instead of unit value *)
 
-(* Convert AST literals to runtime values *)
-let convert_ivector_lit (size, elems) =
-  let arr = Array.make size 0 in
-  List.iteri (fun i v -> if i < size then arr.(i) <- v) elems;
-  VIVector(size, arr)
+(* Global magnitude function that works with both integer and float vectors using the specified operation *)
+let calculate_magnitude vec add_op mul_op sqrt_op zero =
+  let sum_of_squares = fold_left (fun acc x -> add_op acc (mul_op x x)) zero vec in
+  sqrt_op sum_of_squares
 
-let convert_fvector_lit (size, elems) =
-  let arr = Array.make size 0.0 in
-  List.iteri (fun i v -> if i < size then arr.(i) <- v) elems;
-  VFVector(size, arr)
+(* Global angle function using dot products and magnitudes *)
+let calculate_angle vec1 vec2 dot_product_fn magnitude_fn =
+  let dot = dot_product_fn vec1 vec2 in
+  let mag1 = magnitude_fn vec1 in
+  let mag2 = magnitude_fn vec2 in
+  
+  let denominator = mag1 *. mag2 in
+  let cos_theta = max (-1.0) (min 1.0 (dot/.denominator)) in
+  acos cos_theta
 
-let convert_imatrix_lit (rows, cols, data) =
-  let mat = Array.make_matrix rows cols 0 in
-  List.iteri (fun i row -> 
-    if i < rows then
-      List.iteri (fun j v -> 
-        if j < cols then mat.(i).(j) <- v
-      ) row
-  ) data;
-  VIMatrix(rows, cols, mat)
+(* Calculate magnitude for integer vectors *)
+let magnitude_int_vector vec =
+  calculate_magnitude vec (+) ( * ) (fun x -> sqrt(float_of_int x)) 0
 
-let convert_fmatrix_lit (rows, cols, data) =
-  let mat = Array.make_matrix rows cols 0.0 in
-  List.iteri (fun i row -> 
-    if i < rows then
-      List.iteri (fun j v -> 
-        if j < cols then mat.(i).(j) <- v
-      ) row
-  ) data;
-  VFMatrix(rows, cols, mat)
+(* Calculate magnitude for float vectors *)
+let magnitude_float_vector vec =
+  calculate_magnitude vec (+.) ( *. ) sqrt 0.0
+
+(* Calculate angle between integer vectors *)
+let angle_int_vectors vec1 vec2 =  
+  calculate_angle vec1 vec2 
+    (fun v1 v2 -> float_of_int (dot_product_int v1 v2))
+    (fun v -> magnitude_int_vector v)
+
+(* Calculate angle between float vectors *)
+let angle_float_vectors vec1 vec2 =
+  calculate_angle vec1 vec2
+    (fun v1 v2 -> dot_product_float v1 v2)
+    (fun v -> magnitude_float_vector v)
 
 (* Evaluate an expression *)
 let rec eval_expr env = function
@@ -116,10 +422,10 @@ let rec eval_expr env = function
   | FloatLit f -> VFloat f
   | BoolLit b -> VBool b
   | StringLit s -> VString s
-  | IVectorLit(size, elems) -> convert_ivector_lit (size, elems)
-  | FVectorLit(size, elems) -> convert_fvector_lit (size, elems)
-  | IMatrixLit(rows, cols, data) -> convert_imatrix_lit (rows, cols, data)
-  | FMatrixLit(rows, cols, data) -> convert_fmatrix_lit (rows, cols, data)
+  | IVectorLit(size, elems) -> VIVector(size, elems)
+  | FVectorLit(size, elems) -> VFVector(size, elems)
+  | IMatrixLit(rows, cols, data) -> VIMatrix(rows, cols, data)
+  | FMatrixLit(rows, cols, data) -> VFMatrix(rows, cols, data)
   
   (* Binary operations *)
   | BinOp(e1, op, e2) ->
@@ -137,10 +443,9 @@ let rec eval_expr env = function
             if b = 0 then raise (Runtime_error "Modulo by zero")
             else VInt (a mod b)
         | Power, VInt a, VInt b ->
-            if b < 0 then raise (Runtime_error "Negative power for integer")
-            else VInt (int_of_float (float_of_int a ** float_of_int b))
-            
-        (* Float arithmetic *)
+            VInt (int_of_float (float_of_int a ** float_of_int b))
+
+                (* Float arithmetic *)
         | FAdd, VFloat a, VFloat b -> VFloat (a +. b)
         | FSub, VFloat a, VFloat b -> VFloat (a -. b)
         | FMul, VFloat a, VFloat b -> VFloat (a *. b)
@@ -151,387 +456,89 @@ let rec eval_expr env = function
             if b = 0.0 then raise (Runtime_error "Modulo by zero")
             else VFloat (mod_float a b)
         | Power, VFloat a, VFloat b -> VFloat (a ** b)
-        | Power, VInt a, VFloat b -> VFloat ((float_of_int a) ** b)
-        | Power, VFloat a, VInt b -> VFloat (a ** (float_of_int b))
-        
+        (* | Power, VInt a, VFloat b -> VFloat ((float_of_int a) ** b)
+        | Power, VFloat a, VInt b -> VFloat (a ** (float_of_int b)) *)
+            
         (* Integer vector operations *)
         | IAdd, VIVector(n1, lst1), VIVector(n2, lst2) ->
             if n1 <> n2 then raise (Runtime_error "Vector dimension mismatch")
-            else
-              let rec add_vectors v1 v2 =
-                match v1, v2 with
-                | [], [] -> []
-                | x::xs, y::ys -> (x + y) :: add_vectors xs ys
-                | _, _ -> raise (Runtime_error "Vector dimension mismatch")
-              in
-              VIVector(n1, add_vectors lst1 lst2)
+            else VIVector(n1, vector_zipWith (+) lst1 lst2)
               
         | ISub, VIVector(n1, lst1), VIVector(n2, lst2) ->
             if n1 <> n2 then raise (Runtime_error "Vector dimension mismatch")
-            else
-              let rec sub_vectors v1 v2 =
-                match v1, v2 with
-                | [], [] -> []
-                | x::xs, y::ys -> (x - y) :: sub_vectors xs ys
-                | _, _ -> raise (Runtime_error "Vector dimension mismatch")
-              in
-              VIVector(n1, sub_vectors lst1 lst2)
+            else VIVector(n1, vector_zipWith (-) lst1 lst2)
               
         | IMul, VIVector(n1, lst1), VIVector(n2, lst2) -> (* Dot product *)
             if n1 <> n2 then raise (Runtime_error "Vector dimension mismatch")
-            else
-              let rec dot_product v1 v2 acc =
-                match v1, v2 with
-                | [], [] -> acc
-                | x::xs, y::ys -> dot_product xs ys (acc + (x * y))
-                | _, _ -> raise (Runtime_error "Vector dimension mismatch")
-              in
-              VInt (dot_product lst1 lst2 0)
+            else VInt (dot_product lst1 lst2 0 ( * ))
               
         | IMul, VIVector(n, lst), VInt scalar ->
-            let rec scalar_mul lst scalar =
-              match lst with
-              | [] -> []
-              | x::xs -> (x * scalar) :: scalar_mul xs scalar
-            in
-            VIVector(n, scalar_mul lst scalar)
+            VIVector(n, scalar_mul lst scalar ( * ))
             
         | IMul, VInt scalar, VIVector(n, lst) ->
-            let rec scalar_mul lst scalar =
-              match lst with
-              | [] -> []
-              | x::xs -> (scalar * x) :: scalar_mul xs scalar
-            in
-            VIVector(n, scalar_mul lst scalar)
+            VIVector(n, scalar_mul lst scalar ( * ))
             
         (* Float vector operations *)
         | FAdd, VFVector(n1, lst1), VFVector(n2, lst2) ->
             if n1 <> n2 then raise (Runtime_error "Vector dimension mismatch")
-            else
-              let rec add_vectors v1 v2 =
-                match v1, v2 with
-                | [], [] -> []
-                | x::xs, y::ys -> (x +. y) :: add_vectors xs ys
-                | _, _ -> raise (Runtime_error "Vector dimension mismatch")
-              in
-              VFVector(n1, add_vectors lst1 lst2)
+            else VFVector(n1, vector_zipWith (+.) lst1 lst2)
               
         | FSub, VFVector(n1, lst1), VFVector(n2, lst2) ->
             if n1 <> n2 then raise (Runtime_error "Vector dimension mismatch")
-            else
-              let rec sub_vectors v1 v2 =
-                match v1, v2 with
-                | [], [] -> []
-                | x::xs, y::ys -> (x -. y) :: sub_vectors xs ys
-                | _, _ -> raise (Runtime_error "Vector dimension mismatch")
-              in
-              VFVector(n1, sub_vectors lst1 lst2)
+            else VFVector(n1, vector_zipWith (-.) lst1 lst2)
               
         | FMul, VFVector(n1, lst1), VFVector(n2, lst2) -> (* Dot product *)
             if n1 <> n2 then raise (Runtime_error "Vector dimension mismatch")
-            else
-              let rec dot_product v1 v2 acc =
-                match v1, v2 with
-                | [], [] -> acc
-                | x::xs, y::ys -> dot_product xs ys (acc +. (x *. y))
-                | _, _ -> raise (Runtime_error "Vector dimension mismatch")
-              in
-              VFloat (dot_product lst1 lst2 0.0)
+            else VFloat (dot_product lst1 lst2 0.0 ( *. ))
               
         | FMul, VFVector(n, lst), VFloat scalar ->
-            let rec scalar_mul lst scalar =
-              match lst with
-              | [] -> []
-              | x::xs -> (x *. scalar) :: scalar_mul xs scalar
-            in
-            VFVector(n, scalar_mul lst scalar)
+            VFVector(n, scalar_mul lst scalar ( *. ))
             
         | FMul, VFloat scalar, VFVector(n, lst) ->
-            let rec scalar_mul lst scalar =
-              match lst with
-              | [] -> []
-              | x::xs -> (scalar *. x) :: scalar_mul xs scalar
-            in
-            VFVector(n, scalar_mul lst scalar)
+            VFVector(n, scalar_mul lst scalar ( *. ))
             
         (* Integer Matrix operations *)
         | IAdd, VIMatrix(r1, c1, mat1), VIMatrix(r2, c2, mat2) ->
             if r1 <> r2 || c1 <> c2 then raise (Runtime_error "Matrix dimension mismatch")
-            else
-              let rec add_rows row1 row2 =
-                match row1, row2 with
-                | [], [] -> []
-                | x::xs, y::ys -> (x + y) :: add_rows xs ys
-                | _, _ -> raise (Runtime_error "Matrix dimension mismatch")
-              in
-              
-              let rec add_matrices m1 m2 =
-                match m1, m2 with
-                | [], [] -> []
-                | row1::rest1, row2::rest2 -> (add_rows row1 row2) :: add_matrices rest1 rest2
-                | _, _ -> raise (Runtime_error "Matrix dimension mismatch")
-              in
-              
-              VIMatrix(r1, c1, add_matrices mat1 mat2)
+            else VIMatrix(r1, c1, matrix_zipWith (+) mat1 mat2)
               
         | ISub, VIMatrix(r1, c1, mat1), VIMatrix(r2, c2, mat2) ->
             if r1 <> r2 || c1 <> c2 then raise (Runtime_error "Matrix dimension mismatch")
-            else
-              let rec sub_rows row1 row2 =
-                match row1, row2 with
-                | [], [] -> []
-                | x::xs, y::ys -> (x - y) :: sub_rows xs ys
-                | _, _ -> raise (Runtime_error "Matrix dimension mismatch")
-              in
-              
-              let rec sub_matrices m1 m2 =
-                match m1, m2 with
-                | [], [] -> []
-                | row1::rest1, row2::rest2 -> (sub_rows row1 row2) :: sub_matrices rest1 rest2
-                | _, _ -> raise (Runtime_error "Matrix dimension mismatch")
-              in
-              
-              VIMatrix(r1, c1, sub_matrices mat1 mat2)
+            else VIMatrix(r1, c1, matrix_zipWith (-) mat1 mat2)
               
         | IMul, VIMatrix(r1, c1, mat1), VIMatrix(r2, c2, mat2) ->
             if c1 <> r2 then raise (Runtime_error "Matrix multiplication dimension mismatch")
-            else
-              (* Get column j from matrix *)
-              let get_column mat j =
-                List.map (fun row -> 
-                  let rec get_jth_elem lst index =
-                    match lst with
-                    | [] -> raise (Runtime_error "Column index out of bounds")
-                    | x::xs -> if index = 0 then x else get_jth_elem xs (index-1)
-                  in
-                  get_jth_elem row j
-                ) mat
-              in
+            else multiply_int_matrices r1 c1 mat1 r2 c2 mat2
               
-              (* Dot product of two lists *)
-              let dot_product lst1 lst2 =
-                let rec dot lst1 lst2 acc =
-                  match lst1, lst2 with
-                  | [], [] -> acc
-                  | x::xs, y::ys -> dot xs ys (acc + (x * y))
-                  | _, _ -> raise (Runtime_error "Vector dimension mismatch in dot product")
-                in
-                dot lst1 lst2 0
-              in
-              
-              (* Compute result matrix *)
-              let rec compute_result_matrix i acc =
-                if i = r1 then List.rev acc
-                else
-                  (* Get row i from mat1 *)
-                  let row_i = 
-                    let rec get_ith_row mat index =
-                      match mat with
-                      | [] -> raise (Runtime_error "Row index out of bounds")
-                      | x::xs -> if index = 0 then x else get_ith_row xs (index-1)
-                    in
-                    get_ith_row mat1 i
-                  in
-                  
-                  (* Compute row i of result *)
-                  let rec compute_row j row_acc =
-                    if j = c2 then List.rev row_acc
-                    else
-                      let col_j = get_column mat2 j in
-                      compute_row (j+1) ((dot_product row_i col_j)::row_acc)
-                  in
-                  
-                  let result_row = compute_row 0 [] in
-                  compute_result_matrix (i+1) (result_row::acc)
-              in
-              
-              VIMatrix(r1, c2, compute_result_matrix 0 [])
-              
-        | IMul, VIMatrix(r, c, mat), VInt scalar ->
-            let rec scalar_mul_row row scalar =
-              match row with
-              | [] -> []
-              | x::xs -> (x * scalar) :: scalar_mul_row xs scalar
-            in
+        | IMul, VIMatrix(r, c, mat), VInt scalar -> scalar_mul_int_matrix r c mat scalar
             
-            let rec scalar_mul_matrix mat scalar =
-              match mat with
-              | [] -> []
-              | row::rest -> (scalar_mul_row row scalar) :: scalar_mul_matrix rest scalar
-            in
-            
-            VIMatrix(r, c, scalar_mul_matrix mat scalar)
-            
-        | IMul, VInt scalar, VIMatrix(r, c, mat) ->
-            let rec scalar_mul_row row scalar =
-              match row with
-              | [] -> []
-              | x::xs -> (scalar * x) :: scalar_mul_row xs scalar
-            in
-            
-            let rec scalar_mul_matrix mat scalar =
-              match mat with
-              | [] -> []
-              | row::rest -> (scalar_mul_row row scalar) :: scalar_mul_matrix rest scalar
-            in
-            
-            VIMatrix(r, c, scalar_mul_matrix mat scalar)
+        | IMul, VInt scalar, VIMatrix(r, c, mat) -> scalar_mul_int_matrix r c mat scalar
             
         (* Float Matrix operations *)
         | FAdd, VFMatrix(r1, c1, mat1), VFMatrix(r2, c2, mat2) ->
             if r1 <> r2 || c1 <> c2 then raise (Runtime_error "Matrix dimension mismatch")
-            else
-              let rec add_rows row1 row2 =
-                match row1, row2 with
-                | [], [] -> []
-                | x::xs, y::ys -> (x +. y) :: add_rows xs ys
-                | _, _ -> raise (Runtime_error "Matrix dimension mismatch")
-              in
-              
-              let rec add_matrices m1 m2 =
-                match m1, m2 with
-                | [], [] -> []
-                | row1::rest1, row2::rest2 -> (add_rows row1 row2) :: add_matrices rest1 rest2
-                | _, _ -> raise (Runtime_error "Matrix dimension mismatch")
-              in
-              
-              VFMatrix(r1, c1, add_matrices mat1 mat2)
+            else VFMatrix(r1, c1, matrix_zipWith (+.) mat1 mat2)
               
         | FSub, VFMatrix(r1, c1, mat1), VFMatrix(r2, c2, mat2) ->
             if r1 <> r2 || c1 <> c2 then raise (Runtime_error "Matrix dimension mismatch")
-            else
-              let rec sub_rows row1 row2 =
-                match row1, row2 with
-                | [], [] -> []
-                | x::xs, y::ys -> (x -. y) :: sub_rows xs ys
-                | _, _ -> raise (Runtime_error "Matrix dimension mismatch")
-              in
-              
-              let rec sub_matrices m1 m2 =
-                match m1, m2 with
-                | [], [] -> []
-                | row1::rest1, row2::rest2 -> (sub_rows row1 row2) :: sub_matrices rest1 rest2
-                | _, _ -> raise (Runtime_error "Matrix dimension mismatch")
-              in
-              
-              VFMatrix(r1, c1, sub_matrices mat1 mat2)
+            else VFMatrix(r1, c1, matrix_zipWith (-.) mat1 mat2)
               
         | FMul, VFMatrix(r1, c1, mat1), VFMatrix(r2, c2, mat2) ->
             if c1 <> r2 then raise (Runtime_error "Matrix multiplication dimension mismatch")
-            else
-              (* Get column j from matrix *)
-              let get_column mat j =
-                List.map (fun row -> 
-                  let rec get_jth_elem lst index =
-                    match lst with
-                    | [] -> raise (Runtime_error "Column index out of bounds")
-                    | x::xs -> if index = 0 then x else get_jth_elem xs (index-1)
-                  in
-                  get_jth_elem row j
-                ) mat
-              in
+            else  multiply_float_matrices r1 c1 mat1 r2 c2 mat2
               
-              (* Dot product of two lists *)
-              let dot_product lst1 lst2 =
-                let rec dot lst1 lst2 acc =
-                  match lst1, lst2 with
-                  | [], [] -> acc
-                  | x::xs, y::ys -> dot xs ys (acc +. (x *. y))
-                  | _, _ -> raise (Runtime_error "Vector dimension mismatch in dot product")
-                in
-                dot lst1 lst2 0.0
-              in
-              
-              (* Compute result matrix *)
-              let rec compute_result_matrix i acc =
-                if i = r1 then List.rev acc
-                else
-                  (* Get row i from mat1 *)
-                  let row_i = 
-                    let rec get_ith_row mat index =
-                      match mat with
-                      | [] -> raise (Runtime_error "Row index out of bounds")
-                      | x::xs -> if index = 0 then x else get_ith_row xs (index-1)
-                    in
-                    get_ith_row mat1 i
-                  in
-                  
-                  (* Compute row i of result *)
-                  let rec compute_row j row_acc =
-                    if j = c2 then List.rev row_acc
-                    else
-                      let col_j = get_column mat2 j in
-                      compute_row (j+1) ((dot_product row_i col_j)::row_acc)
-                  in
-                  
-                  let result_row = compute_row 0 [] in
-                  compute_result_matrix (i+1) (result_row::acc)
-              in
-              
-              VFMatrix(r1, c2, compute_result_matrix 0 [])
-              
-        | FMul, VFMatrix(r, c, mat), VFloat scalar ->
-            let rec scalar_mul_row row scalar =
-              match row with
-              | [] -> []
-              | x::xs -> (x *. scalar) :: scalar_mul_row xs scalar
-            in
+        | FMul, VFMatrix(r, c, mat), VFloat scalar -> scalar_mul_float_matrix r c mat scalar
             
-            let rec scalar_mul_matrix mat scalar =
-              match mat with
-              | [] -> []
-              | row::rest -> (scalar_mul_row row scalar) :: scalar_mul_matrix rest scalar
-            in
-            
-            VFMatrix(r, c, scalar_mul_matrix mat scalar)
-            
-        | FMul, VFloat scalar, VFMatrix(r, c, mat) ->
-            let rec scalar_mul_row row scalar =
-              match row with
-              | [] -> []
-              | x::xs -> (scalar *. x) :: scalar_mul_row xs scalar
-            in
-            
-            let rec scalar_mul_matrix mat scalar =
-              match mat with
-              | [] -> []
-              | row::rest -> (scalar_mul_row row scalar) :: scalar_mul_matrix rest scalar
-            in
-            
-            VFMatrix(r, c, scalar_mul_matrix mat scalar)
+        | FMul, VFloat scalar, VFMatrix(r, c, mat) -> scalar_mul_float_matrix r c mat scalar
 
         (* Matrix-vector operations *)
-        | IMul, VIMatrix(r, c, mat), VIVector(n, vec) ->
-            if c <> n then raise (Runtime_error "Matrix-vector dimension mismatch")
-            else
-              (* Dot product of two lists *)
-              let rec dot_product v1 v2 acc =
-                match v1, v2 with
-                | [], [] -> acc
-                | x::xs, y::ys -> dot_product xs ys (acc + (x * y))
-                | _, _ -> raise (Runtime_error "Vector dimension mismatch in dot product")
-              in
-              
-              (* For each row of the matrix, compute the dot product with the vector *)
-              let result = List.map (fun row -> dot_product row vec 0) mat in
-              
-              VIVector(r, result)
-              
-        | FMul, VFMatrix(r, c, mat), VFVector(n, vec) ->
-            if c <> n then raise (Runtime_error "Matrix-vector dimension mismatch")
-            else
-              (* Dot product of two lists *)
-              let rec dot_product v1 v2 acc =
-                match v1, v2 with
-                | [], [] -> acc
-                | x::xs, y::ys -> dot_product xs ys (acc +. (x *. y))
-                | _, _ -> raise (Runtime_error "Vector dimension mismatch in dot product")
-              in
-              
-              (* For each row of the matrix, compute the dot product with the vector *)
-              let result = List.map (fun row -> dot_product row vec 0.0) mat in
-              
-              VFVector(r, result)
+        | IMul, VIMatrix(r, c, mat), VIVector(n, vec) -> multiply_matrix_vector_int r c mat vec n
+          
+        | IMul, VIVector(n, vec), VIMatrix(r, c, mat) -> multiply_vector_matrix_int n vec r c mat
+          
+        | FMul, VFMatrix(r, c, mat), VFVector(n, vec) -> multiply_matrix_vector_float r c mat vec n
+          
+        | FMul, VFVector(n, vec), VFMatrix(r, c, mat) -> multiply_vector_matrix_float n vec r c mat
             
         (* Comparison operators *)
         | Equal, v1, v2 -> VBool (v1 = v2)
@@ -553,49 +560,11 @@ let rec eval_expr env = function
         (* Special vector operations *)
         | Angle, VIVector(n1, vec1), VIVector(n2, vec2) ->
             if n1 <> n2 then raise (Runtime_error "Vector dimension mismatch for angle")
-            else 
-              (* Compute angle between vectors using dot product formula:
-                 cos(θ) = (v1·v2)/(|v1|*|v2|) *)
-              let dot_product = ref 0 in
-              let mag1_squared = ref 0 in
-              let mag2_squared = ref 0 in
-              
-              let rec compute_values v1 v2 dot mag1 mag2 =
-                match v1, v2 with
-                | [], [] -> (dot, mag1, mag2)
-                | x::xs, y::ys ->
-                    let new_dot = dot + (x * y) in
-                    let new_mag1 = mag1 + (x * x) in
-                    let new_mag2 = mag2 + (y * y) in
-                    compute_values xs ys new_dot new_mag1 new_mag2
-                | _, _ -> raise (Runtime_error "Vector dimension mismatch")
-              in
-              
-              let (dot, mag1_sq, mag2_sq) = compute_values vec1 vec2 0 0 0 in
-              
-              let denominator = sqrt(float_of_int mag1_sq) *. sqrt(float_of_int mag2_sq) in
-              if denominator = 0.0 then VFloat 0.0
-              else VFloat (acos(float_of_int dot /. denominator))
+            else VFloat (angle_int_vectors vec1 vec2)
               
         | Angle, VFVector(n1, vec1), VFVector(n2, vec2) ->
             if n1 <> n2 then raise (Runtime_error "Vector dimension mismatch for angle")
-            else
-              let rec compute_values v1 v2 dot mag1 mag2 =
-                match v1, v2 with
-                | [], [] -> (dot, mag1, mag2)
-                | x::xs, y::ys ->
-                    let new_dot = dot +. (x *. y) in
-                    let new_mag1 = mag1 +. (x *. x) in
-                    let new_mag2 = mag2 +. (y *. y) in
-                    compute_values xs ys new_dot new_mag1 new_mag2
-                | _, _ -> raise (Runtime_error "Vector dimension mismatch")
-              in
-              
-              let (dot, mag1_sq, mag2_sq) = compute_values vec1 vec2 0.0 0.0 0.0 in
-              
-              let denominator = sqrt(mag1_sq) *. sqrt(mag2_sq) in
-              if denominator = 0.0 then VFloat 0.0
-              else VFloat (acos(dot /. denominator))
+            else VFloat (angle_float_vectors vec1 vec2)
               
         | _ -> raise (Runtime_error "Invalid binary operation")
       )
@@ -614,112 +583,24 @@ let rec eval_expr env = function
       | Abs, VInt i -> VInt (abs i)
       | Abs, VFloat f -> VFloat (abs_float f)
       
-      | Transpose, VIMatrix(r, c, mat) ->
-          (* Get column j from matrix *)
-          let get_column mat j =
-            List.map (fun row -> 
-              let rec get_jth_elem lst index =
-                match lst with
-                | [] -> raise (Runtime_error "Column index out of bounds")
-                | x::xs -> if index = 0 then x else get_jth_elem xs (index-1)
-              in
-              get_jth_elem row j
-            ) mat
-          in
+      | Transpose, VIMatrix(r, c, mat) ->  VIMatrix(c, r, build_transpose mat c)
           
-          (* Create transpose matrix by getting each column *)
-          let rec build_transpose j acc =
-            if j >= c then List.rev acc
-            else build_transpose (j+1) ((get_column mat j)::acc)
-          in
+      | Transpose, VFMatrix(r, c, mat) -> VFMatrix(c, r, build_transpose mat c)
           
-          VIMatrix(c, r, build_transpose 0 [])
-          
-      | Transpose, VFMatrix(r, c, mat) ->
-          (* Get column j from matrix *)
-          let get_column mat j =
-            List.map (fun row -> 
-              let rec get_jth_elem lst index =
-                match lst with
-                | [] -> raise (Runtime_error "Column index out of bounds")
-                | x::xs -> if index = 0 then x else get_jth_elem xs (index-1)
-              in
-              get_jth_elem row j
-            ) mat
-          in
-          
-          (* Create transpose matrix by getting each column *)
-          let rec build_transpose j acc =
-            if j >= c then List.rev acc
-            else build_transpose (j+1) ((get_column mat j)::acc)
-          in
-          
-          VFMatrix(c, r, build_transpose 0 [])
-          
-      | Det, VIMatrix(r, c, mat) ->
-          if r <> c then raise (Runtime_error "Determinant requires a square matrix")
-          else if r = 1 then 
-            match mat with
-            | [row] -> 
-                (match row with
-                 | [value] -> VInt value
-                 | _ -> raise (Runtime_error "Invalid matrix format"))
-            | _ -> raise (Runtime_error "Invalid matrix format")
-          else if r = 2 then
-            match mat with
-            | [row1; row2] -> 
-                (match row1, row2 with
-                 | [a; b], [c; d] -> VInt (a * d - b * c)
-                 | _, _ -> raise (Runtime_error "Invalid matrix format"))
-            | _ -> raise (Runtime_error "Invalid matrix format")
-          else 
-            (* For larger matrices we would need a more complex algorithm *)
-            raise (Runtime_error "Determinant not implemented for matrices larger than 2x2")
-            
-      | Det, VFMatrix(r, c, mat) ->
-          if r <> c then raise (Runtime_error "Determinant requires a square matrix")
-          else if r = 1 then
-            match mat with
-            | [row] -> 
-                (match row with
-                 | [value] -> VFloat value
-                 | _ -> raise (Runtime_error "Invalid matrix format"))
-            | _ -> raise (Runtime_error "Invalid matrix format")
-          else if r = 2 then
-            match mat with
-            | [row1; row2] -> 
-                (match row1, row2 with
-                 | [a; b], [c; d] -> VFloat (a *. d -. b *. c)
-                 | _, _ -> raise (Runtime_error "Invalid matrix format"))
-            | _ -> raise (Runtime_error "Invalid matrix format")
-          else 
-            raise (Runtime_error "Determinant not implemented for matrices larger than 2x2")
+      | Det, VIMatrix(r, c, mat) -> determinant_int_matrix r c mat
+      | Det, VFMatrix(r, c, mat) -> determinant_float_matrix r c mat
             
       | Dimension, VIVector(n, _) -> VInt n
       | Dimension, VFVector(n, _) -> VInt n
-      | Dimension, VIMatrix(r, c, _) -> 
-          VIVector(2, [r; c])
+      | Dimension, VIMatrix(r, c, _) -> VIVector(2, [r; c])
           
-      | Dimension, VFMatrix(r, c, _) -> 
-          VIVector(2, [r; c])
+      | Dimension, VFMatrix(r, c, _) -> VIVector(2, [r; c])
           
-      | Magnitude, VIVector(n, vec) ->
-          let rec sum_squares lst acc =
-            match lst with
-            | [] -> acc
-            | x::xs -> sum_squares xs (acc + (x * x))
-          in
-          let sum_of_squares = sum_squares vec 0 in
-          VFloat (sqrt(float_of_int sum_of_squares))
+      | Magnitude, VIVector(_, vec) ->
+          VFloat (magnitude_int_vector vec)
           
-      | Magnitude, VFVector(n, vec) ->
-          let rec sum_squares lst acc =
-            match lst with
-            | [] -> acc
-            | x::xs -> sum_squares xs (acc +. (x *. x))
-          in
-          let sum_of_squares = sum_squares vec 0.0 in
-          VFloat (sqrt(sum_of_squares))
+      | Magnitude, VFVector(_, vec) ->
+          VFloat (magnitude_float_vector vec)
           
       | _ -> raise (Runtime_error "Invalid unary operation")
       )
@@ -731,23 +612,11 @@ let rec eval_expr env = function
       (match vec, idx with
       | VIVector(n, lst), VInt i ->
           if i < 0 || i >= n then raise (Runtime_error "Vector index out of bounds")
-          else 
-            let rec get_nth lst n =
-              match lst with
-              | [] -> raise (Runtime_error "Vector index out of bounds")
-              | x::xs -> if n = 0 then x else get_nth xs (n-1)
-            in
-            VInt (get_nth lst i)
+          else VInt (get_nth lst i)
           
       | VFVector(n, lst), VInt i ->
           if i < 0 || i >= n then raise (Runtime_error "Vector index out of bounds")
-          else
-            let rec get_nth lst n =
-              match lst with
-              | [] -> raise (Runtime_error "Vector index out of bounds")
-              | x::xs -> if n = 0 then x else get_nth xs (n-1)
-            in
-            VFloat (get_nth lst i)
+          else VFloat (get_nth lst i)
           
       | _ -> raise (Runtime_error "Invalid vector indexing")
       )
@@ -761,39 +630,15 @@ let rec eval_expr env = function
           if r < 0 || r >= rows || c < 0 || c >= cols then 
             raise (Runtime_error "Matrix index out of bounds")
           else 
-            let rec get_row lst row_idx =
-              match lst with
-              | [] -> raise (Runtime_error "Matrix row index out of bounds")
-              | x::xs -> if row_idx = 0 then x else get_row xs (row_idx-1)
-            in
             let row_lst = get_row mat_lst r in
-            
-            let rec get_col lst col_idx =
-              match lst with
-              | [] -> raise (Runtime_error "Matrix column index out of bounds")
-              | x::xs -> if col_idx = 0 then x else get_col xs (col_idx-1)
-            in
-            
-            VInt (get_col row_lst c)
+            VInt (get_nth row_lst c)
           
       | VFMatrix(rows, cols, mat_lst), VInt r, VInt c ->
           if r < 0 || r >= rows || c < 0 || c >= cols then 
             raise (Runtime_error "Matrix index out of bounds")
           else
-            let rec get_row lst row_idx =
-              match lst with
-              | [] -> raise (Runtime_error "Matrix row index out of bounds")
-              | x::xs -> if row_idx = 0 then x else get_row xs (row_idx-1)
-            in
             let row_lst = get_row mat_lst r in
-            
-            let rec get_col lst col_idx =
-              match lst with
-              | [] -> raise (Runtime_error "Matrix column index out of bounds")
-              | x::xs -> if col_idx = 0 then x else get_col xs (col_idx-1)
-            in
-            
-            VFloat (get_col row_lst c)
+            VFloat (get_nth row_lst c)
           
       | _ -> raise (Runtime_error "Invalid matrix indexing")
       )
@@ -805,22 +650,12 @@ let rec eval_expr env = function
       | VIMatrix(rows, cols, mat_lst), VInt r ->
           if r < 0 || r >= rows then raise (Runtime_error "Row index out of bounds")
           else
-            let rec get_row lst row_idx =
-              match lst with
-              | [] -> raise (Runtime_error "Matrix row index out of bounds")
-              | x::xs -> if row_idx = 0 then x else get_row xs (row_idx-1)
-            in
             let row_lst = get_row mat_lst r in
             VIVector(cols, row_lst)
             
       | VFMatrix(rows, cols, mat_lst), VInt r ->
           if r < 0 || r >= rows then raise (Runtime_error "Row index out of bounds")
           else
-            let rec get_row lst row_idx =
-              match lst with
-              | [] -> raise (Runtime_error "Matrix row index out of bounds")
-              | x::xs -> if row_idx = 0 then x else get_row xs (row_idx-1)
-            in
             let row_lst = get_row mat_lst r in
             VFVector(cols, row_lst)
             
@@ -842,7 +677,7 @@ let rec exec_stmt env = function
         declare_var env var v
       
   | AssignStmt(var, e) ->
-      (* For assignment, variable must exist and types must match *)
+      (* For assignment, variable must exist *)
       let v = eval_expr env e in
       if not (StringMap.mem var env.declared) then
         raise (Runtime_error ("Cannot assign to undeclared variable: '" ^ var ^ "'. Use 'let' to declare first."))
@@ -851,52 +686,84 @@ let rec exec_stmt env = function
   
   | IfStmt(cond, then_stmts, else_stmts) ->
       let condition = eval_expr env cond in
-      (match condition with
-      | VBool true -> exec_stmts env then_stmts
-      | VBool false -> exec_stmts env else_stmts
-      | _ -> raise (Runtime_error "If condition must evaluate to a boolean"))
+      match condition with
+      | VBool true -> 
+          (* Create new scope for then branch *)
+          let then_scope = enter_scope env in
+          (* Execute then branch in new scope *)
+          let then_result = exec_stmts then_scope then_stmts in
+          (* Merge changes back to parent scope *)
+          exit_scope env then_result
+          
+      | VBool false -> 
+          (* Create new scope for else branch *)
+          let else_scope = enter_scope env in
+          (* Execute else branch in new scope *)
+          let else_result = exec_stmts else_scope else_stmts in
+          (* Merge changes back to parent scope *)
+          exit_scope env else_result
+          
+      | _ -> raise (Runtime_error "If condition must evaluate to a boolean")
   
   | ForStmt(var, start_expr, end_expr, body) ->
       let start_val = eval_expr env start_expr in
       let end_val = eval_expr env end_expr in
       
-      (match start_val, end_val with
+      match start_val, end_val with
       | VInt start, VInt end_val ->
-          (* Execute the loop with temporary iterator variable *)
-          let rec loop i loop_env =
-            if i > end_val then loop_env
+          (* Create a single child scope for the entire loop *)
+          let iter_scope = enter_scope env in
+          let iter_scope = declare_var iter_scope var (VInt start) in
+          (* Iterative loop implementation *)
+          let rec iterative_loop i current_scope =
+            if i >= end_val then
+              (* Loop complete, return the final scope state *)
+              current_scope
             else
-              (* Create a new loop environment for each iteration, with the iterator variable *)
-              let iter_env = {
-                values = StringMap.add var (VInt i) loop_env.values;
-                (* Note: We track the iterator in loop scope but not main scope *)
-                declared = StringMap.add var true loop_env.declared;
-              } in
-              let new_env = exec_stmts iter_env body in
-              loop (i + 1) new_env
+              (* For each iteration: 
+                 1. Add/update the iterator variable 
+                 2. Execute the body 
+                 3. Move to next iteration with same scope object *)
+              let updated_scope = update_var current_scope var (VInt i) in
+              (* Execute the body in the updated scope *)
+              let after_body = exec_stmts updated_scope body in
+              (* Continue to next iteration with this scope *)
+              iterative_loop (i + 1) after_body
           in
           
-          (* Start looping with a copy of our current environment *)
-          let final_loop_env = loop start env in
+          (* Run the iterative loop and get the final child scope *)
+          let final_child_scope = iterative_loop start iter_scope in
           
-          (* Return the loop environment but remove the iterator variable *)
-          {
-            values = StringMap.remove var final_loop_env.values;
-            declared = StringMap.remove var final_loop_env.declared;
-          }
+          (* Update the parent environment with any changes to parent variables *)
+          exit_scope env final_child_scope
           
-      | _ -> raise (Runtime_error "For loop bounds must be integers"))
+      | _ -> raise (Runtime_error "For loop bounds must be integers")
   
   | WhileStmt(cond, body) ->
-      let rec loop env =
-        match eval_expr env cond with
+      (* Create a single child scope for the entire loop *)
+      let loop_scope = enter_scope env in
+      
+      (* Iterative implementation *)
+      let rec iterative_loop current_scope =
+        match eval_expr current_scope cond with
         | VBool true ->
-            let new_env = exec_stmts env body in
-            loop new_env
-        | VBool false -> env
+            (* Execute the body in the current scope *)
+            let after_body = exec_stmts current_scope body in
+            (* Continue to next iteration with updated scope *)
+            iterative_loop after_body
+            
+        | VBool false -> 
+            (* Loop complete, return final scope *)
+            current_scope
+            
         | _ -> raise (Runtime_error "While condition must evaluate to a boolean")
       in
-      loop env
+      
+      (* Run the iterative loop and get the final child scope *)
+      let final_child_scope = iterative_loop loop_scope in
+      
+      (* Update the parent environment with any changes to parent variables *)
+      exit_scope env final_child_scope
   
   | InputStmt e ->
       (match eval_expr env e with

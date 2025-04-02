@@ -46,6 +46,22 @@ let remove_var env var =
   { types = StringMap.remove var env.types;
     declared = StringMap.remove var env.declared }
 
+(* New scope management functions *)
+(* Create a new scope by copying the current environment *)
+let enter_scope env = 
+  (* Make a clean copy of the environment for the new scope *)
+  {
+    types = env.types;
+    declared = env.declared;
+  }
+
+(* Exit a scope - since variable types never change in this language, 
+   we can simply return the parent environment as-is.
+   Variables declared in the child scope are automatically discarded. *)
+let exit_scope parent_env _child_env =
+  (* In a language where variable types can't change, we just return the parent env *)
+  parent_env
+
 (* Pretty-print types for error reporting *)
 let string_of_type = function
   | TInt -> "int"
@@ -95,8 +111,8 @@ let rec type_check_expr env = function
         | Power, TFloat, TFloat -> TFloat
 
         (* Hybrid for power *)
-        | Power, TInt, TFloat -> TFloat
-        | Power, TFloat, TInt -> TFloat
+        (* | Power, TInt, TFloat -> TFloat
+        | Power, TFloat, TInt -> TFloat *)
         
         (* Integer vector operations with dimension checks *)
         | IAdd, TIVector n1, TIVector n2 when n1 = n2 -> TIVector n1
@@ -237,9 +253,21 @@ let rec type_check_stmt env = function
   | IfStmt(cond, then_branch, else_branch) ->
       let tcond = type_check_expr env cond in
       if tcond = TBool then
-          let _ = type_check_stmts env then_branch in
-          if else_branch = [] then env
-          else type_check_stmts env else_branch
+          (* Create a new scope for the then branch *)
+          let then_env = enter_scope env in
+          (* Type check the then branch statements *)
+          let _ = type_check_stmts then_env then_branch in
+          
+          (* Since types can't change, we can just return the parent env *)
+          if else_branch = [] then
+            env
+          else
+            (* Create a new scope for the else branch *)
+            let else_env = enter_scope env in
+            (* Type check the else branch statements *)
+            let _ = type_check_stmts else_env else_branch in
+            (* Return the original env since we don't need to track changes *)
+            env
       else
         raise (Wrong cond)
   
@@ -251,18 +279,23 @@ let rec type_check_stmt env = function
         if StringMap.mem var env.declared then
           raise (Wrong (Var var)) (* Cannot reuse an existing variable as loop counter *)
         else
-          (* Create a new scope with the loop variable *)
-          let loop_env = declare_var env var TInt in
+          (* Create a new scope for the loop body, including loop variable *)
+          let loop_env = declare_var (enter_scope env) var TInt in
+          (* Type check the body statements *)
           let _ = type_check_stmts loop_env body in
-          (* Discard the loop variable after the loop ends *)
-          remove_var env var
+          (* Loop variables and declarations inside the loop stay in the loop scope *)
+          env
       else
         raise (Wrong (if tstart <> TInt then start else finish))
   
   | WhileStmt(cond, body) ->
       let tcond = type_check_expr env cond in
       if tcond = TBool then
-        let _ = type_check_stmts env body in
+        (* Create a new scope for the loop body *)
+        let loop_env = enter_scope env in
+        (* Type check the body statements *)
+        let _ = type_check_stmts loop_env body in
+        (* Return original environment, discarding any declarations in the loop *)
         env
       else
         raise (Wrong cond)
