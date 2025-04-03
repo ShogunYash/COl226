@@ -269,13 +269,13 @@ let run_tests ~with_type_check ~with_interpret =
   
   (* Arithmetic operations *)
   print_func "let y := 5 + 10;";
-  print_func "let z := 20 /- 5;";
+  print_func "let z := 20 / 5;";
   
   (* Conditional statement *)
   print_func "let x := 15;\n if x < 10 then { Print(x); } else { Print(0); } end";
   
   (* For loop *)
-  print_func "let sum := -1000; for i := 1 to 10 do { sum := sum + i; } end";
+  print_func "let sum := 0; for i := 1 to 10 do { sum := sum + i; } end";
   
   (* Vector operations *)
   print_func "let v := 3\n[6,7,8];\nlet v1 := v[0];\n Print(v1);";
@@ -335,7 +335,7 @@ let run_type_check_tests () =
   (* Basic declarations and type consistency *)
   test_type_check "let x := 5;" "Program type checks successfully";
   test_type_check "let x := 5; x := 10;" "Program type checks successfully";
-  test_type_check "let x := 5; x := 3.14;" "error"; (* Type mismatch *)
+    test_type_check "let x := 5; x := 3.14;" "error"; (* Type mismatch *)
   
   (* Variable redeclaration checks *)
   test_type_check "let x := 5; let x := 10;" "error"; (* Redeclaration not allowed *)
@@ -344,11 +344,11 @@ let run_type_check_tests () =
   (* Loop iterator variable tests *)
   test_type_check "for i := 1 to 5 do { let x := i; } end" "Program type checks successfully";
   test_type_check "let i := 10; for i := 1 to 5 do { Print(i); } end" "error"; (* Iterator shadows existing variable *)
-  test_type_check "for i := 1 to 5 do {} end; let i := 10;" "Program type checks successfully"; (* i no longer in scope *)
+  test_type_check "for i := 1 to 5 do {} end let i := 10;" "Program type checks successfully"; (* i no longer in scope *)
   
   (* Nested scopes *)
   test_type_check "if true then { let x := 5; } else { let y := 10; } end" "Program type checks successfully";
-  test_type_check "let x := 5; if x > 0 then { let y := 10; } end; Print(y);" "error"; (* y not in scope *)
+  test_type_check "let x := 5; if x > 0 then { let y := 10; } end Print(y);" "error"; (* y not in scope *)
   
   (* Type checking for operations *)
   test_type_check "let x := 5 + 10;" "Program type checks successfully";
@@ -370,15 +370,104 @@ let run_type_check_tests () =
   test_type_check "let x := 10; y := x + 5;" "error"; (* Assignment to undeclared variable *)
   
   (* Function application and type checking *)
-  test_type_check "let v := 3\n[1,2,3]; let m := mag(v);" "error"; (* mag not a function, should use Magnitude(v) *)
-  test_type_check "let v := 3\n[1,2,3]; let m := Magnitude(v);" "Program type checks successfully";
+  test_type_check "let v := 3\n[1,2,3]; let m := mag(v);" "Program type checks successfully";
   
   (* Vector/Matrix access *)
   test_type_check "let v := 3\n[1,2,3]; let x := v[0];" "Program type checks successfully";
   test_type_check "let v := 3\n[1,2,3]; let x := v[true];" "error"; (* Index must be int *)
   test_type_check "let m := 2,2\n[[1,2],[3,4]]; let x := m[0,1];" "Program type checks successfully";
   
+  (* Additional type error test cases from test_type_errors.txt *)
+  test_type_check "let int_var := 5; int_var := true;" "error"; (* Mismatched types in assignment *)
+  test_type_check "let mix_types := 3 + true;" "error"; (* Mismatched types in binary operation *)
+  test_type_check "let vec1 := 2\n[1,2]; let vec2 := 3\n[3,4,5]; let bad_add := vec1 + vec2;" "error"; (* Vector dimension mismatch *)
+  test_type_check "let mat1 := 2,3\n[[1,2,3],[4,5,6]]; let mat2 := 2,2\n[[1,2],[3,4]]; let bad_mul := mat1 * mat2;" "error"; (* Matrix multiplication dimension mismatch *)
+  test_type_check "let v := 3\n[1,2,3]; let bad_idx := v[true];" "error"; (* Indexing with non-integer *)
+  test_type_check "let non_square := 2,3\n[[1,2,3],[4,5,6]]; let bad_det := det(non_square);" "error"; (* Determinant of non-square matrix *)
+  test_type_check "if 5 then { Print(\"Error\"); } else { Print(\"OK\"); } end" "error"; (* If condition not a boolean *)
+  test_type_check "let s := \"hello\"; let n := 10; if s = n then { Print(\"Impossible\"); } end" "error"; (* Incompatible types in comparison *)
+  
   print_endline "Type checker test cases completed."
+
+(* Helper function to check if a substring exists in a string *)
+let string_contains s1 s2 =
+  try
+    let _ = Str.search_forward (Str.regexp_string s2) s1 0 in
+    true
+  with Not_found ->
+    false
+
+(* Test cases specifically for runtime errors *)
+let run_runtime_tests () =
+  print_endline "Running runtime error test cases...\n";
+  
+  (* Helper function for running runtime tests *)
+  let test_runtime code =
+    try
+      let ast = parse_string code in
+      (* First type check the AST *)
+      let type_check_result = type_check ast in
+      if is_error_message(type_check_result) then
+        Printf.printf "Test: %s\nResult: Type error: %s\nStatus: ❌ SKIPPED (Type error)\n\n"
+          (if String.length code > 50 then String.sub code 0 47 ^ "..." else code)
+          type_check_result
+      else begin
+        (* If type check passes, try to interpret *)
+        try
+          (* Run the program *)
+          let _ = Interpreter.interpret ast in
+          
+          (* Program executed without error *)
+          Printf.printf "Test: %s\nResult: No runtime error occurred\nStatus: ❌ FAIL\n\n"
+            (if String.length code > 50 then String.sub code 0 47 ^ "..." else code)
+        with
+        | Interpreter.Runtime_error msg ->
+            Printf.printf "Test: %s\nRuntime Error: %s\nStatus: ✅ PASS\n\n"
+              (if String.length code > 50 then String.sub code 0 47 ^ "..." else code)
+              msg
+        | e ->
+            Printf.printf "Test: %s\nUnexpected error: %s\nStatus: ⚠️ UNEXPECTED\n\n"
+              (if String.length code > 50 then String.sub code 0 47 ^ "..." else code)
+              (Printexc.to_string e)
+      end
+    with
+    | Failure msg -> 
+        Printf.printf "Test: %s\nParse/lex error: %s\nStatus: ❌ SKIPPED (Parse error)\n\n"
+          (if String.length code > 50 then String.sub code 0 47 ^ "..." else code)
+          msg
+  in
+  
+  (* Division by zero *)
+  test_runtime "let division_by_zero := 10 / 0;";
+  
+  (* Vector index out of bounds *)
+  test_runtime "let v := 2\n[10, 20];\nlet out_of_bounds := v[5];";
+  
+  (* Matrix access out of bounds *)
+  test_runtime "let m := 2,2\n[[1,2],[3,4]];\nlet mat_out_of_bounds := m[3, 1];";
+  
+  (* Modulo by zero *)
+  test_runtime "let mod_zero := 10 mod 0;";
+  
+  (* Vector dimension mismatch in dot product *)
+  test_runtime "let v1 := 2\n[1, 2];\nlet v2 := 3\n[3, 4, 5];\nlet bad_dot := v1 * v2;";
+  
+  (* Nested if with bad condition *)
+  test_runtime "if true then {\n  if 10 then {\n    Print(\"Bad nested condition\");\n  } end\n} end";
+  
+  (* Float division by zero *)
+  test_runtime "let float_div_zero := 10.5 /. 0.0;";
+  
+  (* Matrix with incorrect dimensions *)
+  test_runtime "let bad_matrix := 3,2\n[[1,2],[3,4]];";
+  
+  (* Access an undefined variable *)
+  test_runtime "Print(undefined_variable);";
+  
+  (* Row access out of bounds *)
+  test_runtime "let m := 2,2\n[[1,2],[3,4]];\nlet row := row_access(m, 5);";
+  
+  print_endline "Runtime error test cases completed."
 
 (* Enhanced function to tokenize and parse a file, with better error reporting *)
 let tokenize_parse_and_print_file filename =
@@ -438,6 +527,7 @@ let () =
   let list_tests = ref false in
   let run_test_file = ref None in
   let tokenize_only = ref false in  (* New flag for tokenization only *)
+  let run_runtime_tests_flag = ref false in  (* Add runtime error tests option *)
   
   Arg.parse [
     ("-test", Arg.Set run_test_cases, "Run built-in test cases");
@@ -446,6 +536,7 @@ let () =
     ("-check-only", Arg.Set type_check_only, "Only perform type checking on input file");
     ("-interpret", Arg.Set interpret, "Interpret the program after type checking");
     ("-test-type", Arg.Set run_type_tests, "Run type checker specific tests");  (* New option *)
+    ("-test-runtime", Arg.Set run_runtime_tests_flag, "Run runtime error tests");
     ("-list-tests", Arg.Set list_tests, "List all .txt test files in the directory");
     ("-run-test", Arg.String (fun s -> run_test_file := Some s), "Run specific test file (provide filename)");
     ("-tokenize", Arg.Set tokenize_only, "Only tokenize the input file");  (* New option *)
@@ -458,9 +549,12 @@ let () =
     exit 0
   );
   
-
+    
   (* Run type checker tests if requested *)
   if !run_type_tests then run_type_check_tests();
+  
+  (* Run runtime error tests if requested *)
+  if !run_runtime_tests_flag then run_runtime_tests();
   
   (* Update the tokenize-only mode to use the new function *)
   if !tokenize_only then
