@@ -20,7 +20,7 @@ all: lexer_driver $(TEST_OUTPUTS)
 
 # Clean up generated files
 clean:
-	rm -f *.cmi *.cmo lexer.ml lexer_driver $(TEST_OUTPUTS)
+	rm -f *.cmi *.cmo lexer.ml lexer_driver $(TEST_OUTPUTS) lexer_driver.ml 
 
 # Generate lexer.ml from lexer.mll
 lexer.ml: lexer.mll

@@ -1,7 +1,7 @@
 // Test file to demonstrate variable re-declaration prevention
 
 // First declaration - valid
-x := 10;
+let x := 10;
 Print("First declaration of x:");
 Print(x);
 
@@ -11,7 +11,7 @@ Print("Re-assignment of x:");
 Print(x);
 
 // Another variable - valid
-y := 30;
+let y := 30;
 Print("Declaration of y:");
 Print(y);
 
@@ -20,5 +20,6 @@ x := 50;
 Print("This line should not be executed");
 
 // More code that won't execute due to the error
-z := x + y;
+let z := x + y;
+Print("Value of z: \n");
 Print(z);

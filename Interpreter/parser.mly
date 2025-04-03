@@ -74,11 +74,6 @@ stmt_block:
 ;
 
 expr:
-  | ID { Var($1) }
-  | INT_LITERAL { IntLit($1) }
-  | FLOAT_LITERAL { FloatLit($1) }
-  | BOOL_LITERAL { BoolLit($1) }
-  | STRING_LITERAL { StringLit($1) }
   | IVECTOR { 
       let (size, elems) = $1 in
       IVectorLit(size, elems) 
@@ -95,6 +90,8 @@ expr:
       let (rows, cols, data) = $1 in
       FMatrixLit(rows, cols, data) 
     }
+  | expr LBRACKET expr RBRACKET { VectorIndex($1, $3) }
+  | expr LBRACKET expr COMMA expr RBRACKET { MatrixIndex($1, $3, $5) }
   | LPAREN expr RPAREN { $2 }
   | expr IPLUS expr { BinOp($1, IAdd, $3) }
   | expr FPLUS expr { BinOp($1, FAdd, $3) }
@@ -127,8 +124,11 @@ expr:
   | MAGNITUDE LPAREN expr RPAREN { UnOp(Magnitude, $3) }
   | INT_TO_FLOAT LPAREN expr RPAREN { UnOp(I2F, $3) }
   | ROW_ACCESS LPAREN expr COMMA expr RPAREN { RowAccess($3, $5) }
-  | expr LBRACKET expr RBRACKET { VectorIndex($1, $3) }
-  | expr LBRACKET expr COMMA expr RBRACKET { MatrixIndex($1, $3, $5) }
+  | ID { Var($1) }
+  | INT_LITERAL { IntLit($1) }
+  | FLOAT_LITERAL { FloatLit($1) }
+  | BOOL_LITERAL { BoolLit($1) }
+  | STRING_LITERAL { StringLit($1) }
 ;
 
 %%

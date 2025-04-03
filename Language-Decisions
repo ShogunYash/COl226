@@ -5,3 +5,4 @@ In loops I should update the env for a that specific loop and remove all the dec
 plus if iterator was already declared then update the value and dont delete it.
 Now keep track of the variables that were present earlier and loop updated it as they should reflect finally in outer part.
 Check POWER code
+Make the update of i in for correct it

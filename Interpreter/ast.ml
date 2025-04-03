@@ -38,7 +38,7 @@ type unary_op =
 
 (** Expression types *)
 type expr =
-  | Empty                                  (** Empty expression *)
+  | Empty                                   (** Empty expression *)
   | Var of string                           (** Variable reference *)
   | IntLit of int                           (** Integer literal *)
   | FloatLit of float                       (** Float literal *)
@@ -53,7 +53,7 @@ type expr =
   | VectorIndex of expr * expr              (** Vector indexing (vector[index]) *)
   | MatrixIndex of expr * expr * expr       (** Matrix indexing (matrix[row,col]) *)
   | RowAccess of expr * expr                (** Row access (matrix,row]) *)
-
+  
 (** Statement types *)
 type stmt =
   | ExprStmt of expr                        (** Expression statement *)
@@ -62,7 +62,7 @@ type stmt =
   | IfStmt of expr * stmt list * stmt list  (** If statement (condition, then-branch, else-branch) *)
   | ForStmt of string * expr * expr * stmt list (** For loop (counter, start, end, body) *)
   | WhileStmt of expr * stmt list           (** While loop (condition, body) *)
-  | InputStmt of expr                  (** Input into variable *)
+  | InputStmt of expr                       (** Input into variable *)
   | PrintStmt of expr                       (** Print expression *)
 
 (** Program type - the top level structure *)

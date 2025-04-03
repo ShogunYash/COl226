@@ -51,7 +51,6 @@ let digit = ['0'-'9']
 let alpha = ['a'-'z' 'A'-'Z']
 let alnum = alpha | digit | '_' 
 let id = alpha alnum*
-let file = alnum* | '.' | alpha*
 let int_literal = digit+
 let sign = ['+' '-']?
 let exp = ('e'|'E') sign digit+
@@ -181,18 +180,11 @@ rule token = parse
   | '\"' [^'\"']* eof { 
     raise (Lexical_error (Printf.sprintf "Unclosed string literal at line %d" !line_num))
   }
-  (* Add this error handling rule *)
   | eof  { EOF }
-  (* | _ {raise (SyntaxError ("Lexer - Illegal character: " ^ Lexing.lexeme lexbuf)) } *)
-
   | _ as c { 
       raise (Lexical_error (Printf.sprintf "Unexpected character '%c' at line %d" c !line_num)) 
   }
-  (* | _ as c { 
-    raise (Lexical_error (Printf.sprintf 
-      "Unexpected character '%c' (hex: 0x%02x) at line %d" 
-      c (Char.code c) !line_num)) 
-} *)
+
 and comment level = parse
   | eof {  EOF }
   | "/*" { comment (level + 1) lexbuf }

@@ -42,10 +42,6 @@ let declare_var env var typ =
     { types = StringMap.add var typ env.types;
       declared = StringMap.add var true env.declared }
 
-let remove_var env var =
-  { types = StringMap.remove var env.types;
-    declared = StringMap.remove var env.declared }
-
 (* New scope management functions *)
 (* Create a new scope by copying the current environment *)
 let enter_scope env = 
@@ -58,9 +54,6 @@ let enter_scope env =
 (* Exit a scope - since variable types never change in this language, 
    we can simply return the parent environment as-is.
    Variables declared in the child scope are automatically discarded. *)
-let exit_scope parent_env _child_env =
-  (* In a language where variable types can't change, we just return the parent env *)
-  parent_env
 
 (* Pretty-print types for error reporting *)
 let string_of_type = function
@@ -90,10 +83,10 @@ let rec type_check_expr env = function
   | FMatrixLit(n, m, _) -> TFMatrix(n, m)
   
   (* Binary operations *)
-  | BinOp(e1, op, e2) as e ->(
+  | BinOp(e1, op, e2) as e ->
       let t1 = type_check_expr env e1 in
       let t2 = type_check_expr env e2 in
-      match op, t1, t2 with
+      (match op, t1, t2 with
         (* Integer arithmetic *)
         | IAdd, TInt, TInt -> TInt
         | ISub, TInt, TInt -> TInt
@@ -110,45 +103,41 @@ let rec type_check_expr env = function
         | FMod, TFloat, TFloat -> TFloat
         | Power, TFloat, TFloat -> TFloat
 
-        (* Hybrid for power *)
-        (* | Power, TInt, TFloat -> TFloat
-        | Power, TFloat, TInt -> TFloat *)
-        
         (* Integer vector operations with dimension checks *)
         | IAdd, TIVector n1, TIVector n2 when n1 = n2 -> TIVector n1
         | ISub, TIVector n1, TIVector n2 when n1 = n2 -> TIVector n1
         | IMul, TIVector n1, TIVector n2 when n1 = n2 -> TInt  (* Dot product *)
         | IMul, TIVector n, TInt -> TIVector n  (* Scalar multiplication *)
         | IMul, TInt, TIVector n -> TIVector n
-        
+
         (* Float vector operations with dimension checks *)
         | FAdd, TFVector n1, TFVector n2 when n1 = n2 -> TFVector n1
         | FSub, TFVector n1, TFVector n2 when n1 = n2 -> TFVector n1
-        | FMul, TFVector n1, TFVector n2 when n1 = n2 -> TFloat  (* Dot product *)
+        | FMul, TFVector n1, TFVector n2 when n1 = n2 ->  (* Dot product *) TFloat  (* Dot product *)
         | FMul, TFVector n, TFloat -> TFVector n  (* Scalar multiplication *)
         | FMul, TFloat, TFVector n -> TFVector n
-        
+
         (* Integer Matrix operations with dimension checks *)
         | IAdd, TIMatrix(r1, c1), TIMatrix(r2, c2) when r1 = r2 && c1 = c2 -> TIMatrix(r1, c1)
         | ISub, TIMatrix(r1, c1), TIMatrix(r2, c2) when r1 = r2 && c1 = c2 -> TIMatrix(r1, c1)
         | IMul, TIMatrix(r1, c1), TIMatrix(r2, c2) when c1 = r2 -> TIMatrix(r1, c2)
         | IMul, TIMatrix(r, c), TInt -> TIMatrix(r, c)  (* Scalar multiplication *)
         | IMul, TInt, TIMatrix(r, c) -> TIMatrix(r, c)
-        
+
         (* Float Matrix operations with dimension checks *)
         | FAdd, TFMatrix(r1, c1), TFMatrix(r2, c2) when r1 = r2 && c1 = c2 -> TFMatrix(r1, c1)
         | FSub, TFMatrix(r1, c1), TFMatrix(r2, c2) when r1 = r2 && c1 = c2 -> TFMatrix(r1, c1)
         | FMul, TFMatrix(r1, c1), TFMatrix(r2, c2) when c1 = r2 -> TFMatrix(r1, c2)
-        | FMul, TFMatrix(r, c), TFloat -> TFMatrix(r, c)  (* Scalar multiplication *)
+        | FMul, TFMatrix(r, c), TFloat -> TFMatrix(r, c)
         | FMul, TFloat, TFMatrix(r, c) -> TFMatrix(r, c)
 
         (* Vector Matrix operations with dimension checks *)
-        (*  Vector are treated as n cross 1 matrix and changed to matrix as final answer *)
+(*  Vector are treated as n cross 1 matrix and changed to matrix as final answer *)
         | IMul, TIMatrix(r, c), TIVector n when c = n -> TIMatrix (r,1) (* Matrix-vector multiplication *)
         | IMul, TIVector n, TIMatrix(r, c) when 1 = r -> TIMatrix (n,c)
         | FMul, TFMatrix(r, c), TFVector n when c = n -> TFMatrix (r,1)  (* Matrix-vector multiplication *)
         | FMul, TFVector n, TFMatrix(r, c) when 1 = r -> TFMatrix (n,c)
-        
+
         (* Comparison operators *)
         | Equal, t1, t2 when t1 = t2 -> TBool
         | NotEqual, t1, t2 when t1 = t2 -> TBool
@@ -156,19 +145,20 @@ let rec type_check_expr env = function
         | LessEq, TInt, TInt | GreaterEq, TInt, TInt -> TBool
         | Less, TFloat, TFloat | Greater, TFloat, TFloat
         | LessEq, TFloat, TFloat | GreaterEq, TFloat, TFloat -> TBool
-        
+
         (* Logical operators *)
         | And, TBool, TBool | Or, TBool, TBool | Xor, TBool, TBool -> TBool
-        
+
         (* Special vector operations with dimension checks *)
         | Angle, TIVector n1, TIVector n2 when n1 = n2 -> TFloat
         | Angle, TFVector n1, TFVector n2 when n1 = n2 -> TFloat
-      
+
         | _ -> raise (Wrong e)
-  )
+      ) [@warning "-fragile-match"]
+  
   (* Unary operations *)
-  | UnOp(op, expr) as e ->( 
-      let t = type_check_expr env expr in
+  | UnOp(op, expr) as e -> 
+      let t = type_check_expr env expr in(
       match op, t with
       | INeg, TInt -> TInt
       | FNeg, TFloat -> TFloat
@@ -186,44 +176,44 @@ let rec type_check_expr env = function
       | Det, TIMatrix(r, c) when r = c -> TInt  (* Determinant requires square matrix *)
       | Det, TFMatrix(r, c) when r = c -> TFloat
       
-      | Dimension, TIVector n -> TInt
-      | Dimension, TFVector n -> TInt
-      | Dimension, TIMatrix(r, c) -> TIVector 2 
-      | Dimension, TFMatrix(r, c) -> TIVector 2
+      | Dimension, TIVector _ -> TInt
+      | Dimension, TFVector _ -> TInt
+      | Dimension, TIMatrix(_, _) -> TIVector 2 
+      | Dimension, TFMatrix(_, _) -> TIVector 2
       
       | Magnitude, TIVector _ -> TFloat
       | Magnitude, TFVector _ -> TFloat
       
       | _ -> raise (Wrong e)
-  )
+  ) [@warning "-fragile-match"]
   (* Indexing with dimension checks *)
-  | VectorIndex(vec, idx) as e ->(
+  | VectorIndex(vec, idx) as e ->
       let tvec = type_check_expr env vec in
       let tidx = type_check_expr env idx in
-      match tvec, tidx with
-      | TIVector n, TInt -> TInt
-      | TFVector n, TInt -> TFloat
+    (  match tvec, tidx with
+      | TIVector _, TInt -> TInt
+      | TFVector _, TInt -> TFloat
       | _ -> raise (Wrong e)
-    )
+    ) [@warning "-fragile-match"]
   
-  | MatrixIndex(mat, row, col) as e ->(
+  | MatrixIndex(mat, row, col) as e ->
       let tmat = type_check_expr env mat in
       let trow = type_check_expr env row in
       let tcol = type_check_expr env col in
-      match tmat, trow, tcol with
-      | TIMatrix(r, c), TInt, TInt -> TInt
-      | TFMatrix(r, c), TInt, TInt -> TFloat
+  (   match tmat, trow, tcol with
+      | TIMatrix(_, _), TInt, TInt -> TInt
+      | TFMatrix(_, _), TInt, TInt -> TFloat
       | _ -> raise (Wrong e)
-    )
-  | RowAccess(mat, row) as e -> (
+    ) [@warning "-fragile-match"]
+  | RowAccess(mat, row) as e -> 
     let tmat = type_check_expr env mat in
     let trow = type_check_expr env row in
-    match tmat, trow with 
-    | TIMatrix(r, c), TInt -> TIVector c
-    | TFMatrix(r, c), TInt -> TFVector c
+  ( match tmat, trow with 
+    | TIMatrix(_, c), TInt -> TIVector c
+    | TFMatrix(_, c), TInt -> TFVector c
     | _ -> raise (Wrong e)
-  )
-
+  )[@warning "-fragile-match"]
+  
 (* Type-check a statement *)
 let rec type_check_stmt env = function
   | ExprStmt e ->
@@ -314,7 +304,7 @@ let rec type_check_stmt env = function
           | Some TString -> env  (* Variable should contain a string (filename) *)
           | _ -> raise (Wrong e))
       | _ -> raise (Wrong e)
-  )  (* Input arg must be a filename or Empty *)
+  )[@warning "-fragile-match"]  (* Input arg must be a filename or Empty *)
   
   | PrintStmt(e) ->
     (match e with
@@ -322,7 +312,7 @@ let rec type_check_stmt env = function
     | _ -> 
         (* For Print(expr), check that expr is well-typed *)
         ignore (type_check_expr env e);
-        env)
+        env)[@warning "-fragile-match"]
 
 (* Type-check a list of statements *)
 and type_check_stmts env = function

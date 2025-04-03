@@ -26,15 +26,8 @@ all: $(EXEC)
 
 # Run the executable
 run: $(EXEC)
+	@echo "Running test cases: lexing -> parsing -> type checking -> interpreting"
 	./$(EXEC)
-
-# Run with interpreter enabled
-run_interpret: $(EXEC)
-	./$(EXEC) -interpret
-
-# Test with interpreter
-test_interpret: $(EXEC)
-	./$(EXEC) -test -interpret
 
 # Bytecode executable
 $(EXEC): $(CMO_FILES)
@@ -66,5 +59,14 @@ depend: $(LEXER_GEN) $(PARSER_GEN) $(ML_SOURCES) $(MLI_SOURCES)
 # Include dependencies
 -include .depend
 
+# New target to run a specific .txt file through the interpreter
+runtest:
+	@if [ -z "$(FILE)" ]; then \
+	  echo "Please supply a test file name. For example:"; \
+	  echo "  make runtest FILE=test_type_check.txt"; \
+	  exit 1; \
+	fi; \
+	./$(EXEC) -run-test $(FILE)
+
 # Phony targets
-.PHONY: all clean depend run run_interpret test_interpret
+.PHONY: all clean depend run runtest

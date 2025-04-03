@@ -10,19 +10,168 @@ let () =
   try ignore (Hashtbl.hash 0) with Not_found -> 
     failwith "Required Str module not available. Install with 'opam install str'"
 
-(* Parse a string and return the AST *)
-let parse_string str =
-  let lexbuf = Lexing.from_string str in
+
+(* Add a reference to track line numbers for error reporting *)
+let line_num = ref 1
+
+(* New function to tokenize a file directly *)
+let tokenize_file filename =
+  let in_channel = open_in filename in
+  let lexbuf = Lexing.from_channel in_channel in
+  line_num := 1;  (* Reset line counter *)
+  
+  (* Set position info including filename *)
+  lexbuf.Lexing.lex_curr_p <- { lexbuf.Lexing.lex_curr_p with 
+                              Lexing.pos_fname = filename };
+  
+  let rec get_all_tokens tokens =
+    try
+      (match Lexer.token lexbuf with
+      | Parser.EOF ->
+          close_in in_channel;
+          List.rev (Parser.EOF :: tokens)
+      | t -> 
+          get_all_tokens (t :: tokens)) [@warning "-fragile-match"]
+    with
+    | Lexer.Lexical_error msg ->
+        close_in in_channel;
+        let pos = lexbuf.Lexing.lex_curr_p in
+        failwith (Printf.sprintf "Lexical error at line %d, column %d: %s" 
+                 pos.Lexing.pos_lnum 
+                 (pos.Lexing.pos_cnum - pos.Lexing.pos_bol)
+                 msg)
+  in
+  
   try
-    Parser.program Lexer.token lexbuf
+    let result = get_all_tokens [] in
+    close_in in_channel;
+    result
+  with e ->
+    close_in in_channel;
+    raise e
+
+(* Add tokenize_string function for string inputs *)
+let tokenize_string str =
+  let lexbuf = Lexing.from_string str in
+  line_num := 1;  (* Reset line counter *)
+  
+  (* Set position info *)
+  lexbuf.Lexing.lex_curr_p <- { lexbuf.Lexing.lex_curr_p with 
+                              Lexing.pos_lnum = 1;
+                              Lexing.pos_bol = 0 };
+  
+  let rec get_all_tokens tokens =
+    try
+      (match Lexer.token lexbuf with
+      | Parser.EOF -> List.rev (Parser.EOF :: tokens)
+      | t -> get_all_tokens (t :: tokens))[@warning "-fragile-match"]
+    with
+    | Lexer.Lexical_error msg ->
+        let pos = lexbuf.Lexing.lex_curr_p in
+        failwith (Printf.sprintf "Lexical error at line %d, column %d: %s" 
+                 pos.Lexing.pos_lnum 
+                 (pos.Lexing.pos_cnum - pos.Lexing.pos_bol)
+                 msg)
+  in
+  get_all_tokens []
+
+
+(* Enhanced parse_tokens function with better error reporting *)
+let parse_tokens tokens =
+  (* Create a dummy lexer function that provides tokens from our list *)
+  let token_idx = ref 0 in
+  let token_list = Array.of_list tokens in
+  
+  (* Helper function to convert a token to string for error reporting *)
+  let token_to_string token =
+    (match token with
+    | Parser.INT_LITERAL i -> Printf.sprintf "INT(%d)" i
+    | Parser.FLOAT_LITERAL f -> Printf.sprintf "FLOAT(%f)" f
+    | Parser.ID s -> Printf.sprintf "IDENTIFIER(%s)" s
+    | Parser.STRING_LITERAL s -> Printf.sprintf "STRING(%s)" s
+    | Parser.BOOL_LITERAL b -> Printf.sprintf "BOOL(%b)" b
+    | Parser.LET -> "LET"
+    | Parser.IF -> "IF"
+    | Parser.THEN -> "THEN"
+    | Parser.ELSE -> "ELSE"
+    | Parser.END -> "END"
+    | Parser.WHILE -> "WHILE"
+    | Parser.DO -> "DO"
+    | Parser.FOR -> "FOR"
+    | Parser.TO -> "TO"
+    | Parser.SEMICOLON -> ";"
+    | Parser.COMMA -> ","
+    | Parser.LBRACE -> "{"
+    | Parser.RBRACE -> "}"
+    | Parser.LPAREN -> "("
+    | Parser.RPAREN -> ")"
+    | Parser.LBRACKET -> "["
+    | Parser.RBRACKET -> "]"
+    | Parser.ASSIGN -> ":="
+    | Parser.EOF -> "EOF"
+    | _ -> "UNKNOWN_TOKEN") [@warning "-fragile-match"]
+  in
+  
+  let next_token _ =
+    let t = token_list.(!token_idx) in
+    if !token_idx < Array.length token_list - 1 then
+      incr token_idx;
+    t
+  in
+  
+  (* Create a dummy lexbuf *)
+  let lexbuf = Lexing.from_string "" in
+  
+  (* Use our token provider with the parser *)
+  try
+    Parser.program next_token lexbuf
   with
-  | Lexer.Lexical_error msg ->
-      failwith ("Lexical error: " ^ msg)
   | Parsing.Parse_error ->
-      let pos = lexbuf.Lexing.lex_curr_p in
-      failwith (Printf.sprintf "Syntax error at line %d, character %d"
-                 pos.Lexing.pos_lnum
-                 (pos.Lexing.pos_cnum - pos.Lexing.pos_bol))
+      let error_pos = !token_idx in
+      let error_token = if error_pos < Array.length token_list then 
+                          token_list.(error_pos) 
+                        else 
+                          token_list.(Array.length token_list - 1) in
+      
+      (* Get context around the error (tokens before and after) *)
+      let context_start = max 0 (error_pos - 3) in
+      let context_end = min (Array.length token_list - 1) (error_pos + 3) in
+      
+      let context = Buffer.create 100 in
+      Buffer.add_string context "Token sequence: ";
+      for i = context_start to context_end do
+        let token_str = token_to_string token_list.(i) in
+        if i = error_pos then
+          Buffer.add_string context (Printf.sprintf "[ERROR->%s<-] " token_str)
+        else
+          Buffer.add_string context (Printf.sprintf "%s " token_str);
+      done;
+      
+      failwith (Printf.sprintf "Parse error at token #%d: %s\n%s" 
+                error_pos 
+                (token_to_string error_token)
+                (Buffer.contents context))
+                
+                
+(* Update parse_string to use tokenize_string *)
+let parse_string str =
+  try
+    let tokens = tokenize_string str in
+    parse_tokens tokens
+  with
+  | Failure msg -> failwith msg
+  | e -> failwith (Printexc.to_string e)
+
+(* Update parse_file to use tokenize_file *)
+let parse_file filename =
+  try
+    let tokens = tokenize_file filename in
+    parse_tokens tokens
+  with
+  | Failure msg -> failwith msg
+  | e -> 
+      let msg = Printexc.to_string e in
+      failwith msg
 
 (* Helper function to determine if a message is an error *)
 let is_error_message msg =
@@ -40,13 +189,13 @@ let parse_type_check_and_interpret str =
     
     (* Type check the AST *)
     let result = type_check ast in
-    if is_error_message result then
+    if is_error_message(result) then
       Printf.printf "Type Check: ❌ %s\n\n" result
     else begin
       Printf.printf "Type Check: ✅ %s\n\n" result;
       (* If type check passes, interpret the program *)
       Printf.printf "Executing program:\n";
-      interpret ast;
+      Interpreter.interpret ast;
       Printf.printf "\nExecution complete.\n\n"
     end
   with
@@ -63,7 +212,7 @@ let parse_type_check_and_print str =
     
     (* Type check the AST *)
     let result = type_check ast in
-    if is_error_message result then
+    if is_error_message(result) then
       Printf.printf "Type Check: ❌ %s\n\n" result
     else
       Printf.printf "Type Check: ✅ %s\n\n" result
@@ -79,61 +228,11 @@ let parse_and_print str =
   with
   | Failure msg -> Printf.printf "Error parsing: %s\n\n" msg
 
-(* Parse a source file and return the AST *)
-let parse_file filename =
-  (* First read the file into lines *)
-  let read_lines file =
-    let ic = open_in file in
-    let rec aux acc =
-      try
-        let line = input_line ic in
-        aux (line :: acc)
-      with End_of_file ->
-        close_in ic;
-        List.rev acc
-    in
-    aux []
-  in
-  
-  let lines = read_lines filename in
-  
-  (* Now parse the file *)
-  let ic = open_in filename in
-  let lexbuf = Lexing.from_channel ic in
-  
-  (* Set position info including filename *)
-  lexbuf.Lexing.lex_curr_p <- { lexbuf.Lexing.lex_curr_p with 
-                              Lexing.pos_fname = filename };
-  
-  try
-    let ast = Parser.program Lexer.token lexbuf in
-    close_in ic;
-    ast
-  with
-  | Parsing.Parse_error ->
-      let pos = lexbuf.Lexing.lex_curr_p in
-      let line_num = pos.Lexing.pos_lnum in
-      let col = pos.Lexing.pos_cnum - pos.Lexing.pos_bol in
-      close_in ic;
-      
-      (* Get the actual line content *)
-      let line_content = 
-        if line_num > 0 && line_num <= List.length lines then
-          List.nth lines (line_num - 1)
-        else "<<line content not available>>"
-      in
-      
-      (* Create pointer *)
-      let pointer = String.make col ' ' ^ "^" in
-      
-      failwith (Printf.sprintf "Syntax error at line %d, column %d:\n%s\n%s"
-                line_num col line_content pointer)
-
 (* Parse and type check a source file *)
 let parse_and_check_file filename =
   let ast = parse_file filename in
   let result = type_check ast in
-  if is_error_message result then begin
+  if is_error_message(result) then begin
     Printf.printf "Type Check: ❌ %s\n" result;
     exit 1
   end else begin
@@ -145,13 +244,13 @@ let parse_and_check_file filename =
 let parse_check_and_interpret_file filename =
   let ast = parse_file filename in
   let result = type_check ast in
-  if is_error_message result then begin
+  if is_error_message(result) then begin
     Printf.printf "Type Check: ❌ %s\n" result;
     exit 1
   end else begin
     Printf.printf "Type Check: ✅ %s\n" result;
     Printf.printf "Executing program:\n";
-    interpret ast;
+    Interpreter.interpret ast;
     Printf.printf "\nExecution complete.\n";
   end
 
@@ -166,44 +265,44 @@ let run_tests ~with_type_check ~with_interpret =
   in
   
   (* Simple statements *)
-  print_func "x := 10;";
+  print_func "let x := 10;";
   
   (* Arithmetic operations *)
-  print_func "y := 5 + 10;";
-  print_func "z := 20 /- 5;";
+  print_func "let y := 5 + 10;";
+  print_func "let z := 20 /- 5;";
   
   (* Conditional statement *)
-  print_func "x := 15;\n if x < 10 then { Print(x); } else { Print(0); } end";
+  print_func "let x := 15;\n if x < 10 then { Print(x); } else { Print(0); } end";
   
   (* For loop *)
-  print_func "sum := -1000; for i := 1 to 10 do { sum := sum + i; } end";
+  print_func "let sum := -1000; for i := 1 to 10 do { sum := sum + i; } end";
   
   (* Vector operations *)
-  print_func "v := 3\n[6,7,8];\nv := v[0];";
+  print_func "let v := 3\n[6,7,8];\nlet v1 := v[0];\n Print(v1);";
   
   (* Function calls *)
-  print_func "v:=1,1\n[[1]];\ndim_v := dim(v);";
+  print_func "let v:=1,1\n[[1]];\nlet dim_v := dim(v);";
   
   (* Multiple statements *)
-  print_func "x := 5; y := 10; z := x + y;";
+  print_func "let x := 5; let y := 10; let z := x + y;";
 
   (* Comment parse *)
   print_func "// This is a comment";
   print_func "/* This is a comment  Another comment  x:= 10;*/ \"Check this\";";
   
   (* Custom inputs *)
-  print_func "v:=3\n[1,2,3]\n;\nPrint(v);\nelem := v[1];\nPrint(elem);";
-  print_func "x:= 58;\nif x < 20 then \n { Print(x); } \n else { Print(); } \n end";
-  print_func "x:= 10;\nif x < 20 then \n if x < 5 then \n { Print(x); } \n else Print(0); \n end \n else { Print(0); } \n end";
+  print_func "let v:=3\n[1,2,3]\n;\nPrint(v);\nlet elem := v[1];\nPrint(elem);";
+  print_func "let x:= 58;\nif x < 20 then \n { Print(x); } \n else { Print(); } \n end";
+  print_func "let x:= 10;\nif x < 20 then \n if x < 5 then \n { Print(x); } \n else Print(0); \n end \n else { Print(0); } \n end";
   print_func "Print(0);";
   print_func "Print(\"WorkingPeople\");";
-  print_func "x := 10 + 7 / 2;";
-  print_func "x := 78;\nsum := 0;\nj :=0;\nfor i := x to j do \n { sum := sum + i; \n x := 10 + 19; } \n end";
+  print_func "let x := 10 + 7 / 2;";
+  print_func "let x := 78;\nlet sum := 0;\nlet j :=0;\nfor i := x to j do \n { sum := sum + i; \n x := 10 + 19;\n Print(sum); } \n end";
   print_func "/-1;";
-  print_func "x := -10.9;";
-  print_func "m:=10;\nx := /-m;";
+  print_func "let x := -10.9;";
+  print_func "let m:=10;\nlet x := -1*m;";
   print_func "Print();";
-  print_func "V := 1,1\n[[1]];\nrow_access(V,0);";
+  print_func "let V := 1,1\n[[1]];\n Print(row_access(V,0));";
   (*  Testcases Completed  *)
   print_endline "Test cases completed."
 
@@ -217,7 +316,7 @@ let run_type_check_tests () =
       let ast = parse_string code in
       let result = type_check ast in
       let success = (result = expected_result) || 
-                    (expected_result = "error" && is_error_message result) in
+                    (expected_result = "error" && is_error_message(result)) in
       Printf.printf "Test: %s\nResult: %s\nExpected: %s\nStatus: %s\n\n"
         (if String.length code > 50 then String.sub code 0 47 ^ "..." else code)
         result
@@ -281,6 +380,53 @@ let run_type_check_tests () =
   
   print_endline "Type checker test cases completed."
 
+(* Enhanced function to tokenize and parse a file, with better error reporting *)
+let tokenize_parse_and_print_file filename =
+  Printf.printf "Processing file: %s\n" filename;
+  
+  (* First read the file contents for error reporting *)
+  let read_file_lines file =
+    let ic = open_in file in
+    let rec read_lines acc line_num =
+      try
+        let line = input_line ic in
+        read_lines ((line_num, line) :: acc) (line_num + 1)
+      with End_of_file ->
+        close_in ic;
+        List.rev acc
+    in
+    read_lines [] 1
+  in
+  
+  
+  try
+    (* Tokenize the file *)
+    let tokens = tokenize_file filename in
+    Printf.printf "Lexing completed successfully.\n";
+    
+    (* Parse tokens into AST *)
+    let ast = parse_tokens tokens in
+    Printf.printf "Parsing completed successfully.\n";
+    
+    (* Display the AST *)
+    Printf.printf "AST representation:\n%s\n" (string_of_program ast);
+    Printf.printf "Processing complete.\n";
+    ast
+  with
+  | Lexer.Lexical_error msg ->
+      let file_lines = read_file_lines filename in
+      let pos_info = !line_num in
+      let line_content = try List.assoc pos_info file_lines with Not_found -> "<line not available>" in
+      Printf.printf "Lexical error at line %d:\n%s\nError: %s\n" 
+        pos_info line_content msg;
+      exit 1
+  | Failure msg when String.length msg >= 11 && String.sub msg 0 11 = "Parse error" ->
+      Printf.printf "Parser error: %s\n" msg;
+      exit 1
+  | e -> 
+      Printf.printf "Error during processing: %s\n" (Printexc.to_string e);
+      exit 1
+
 (* Main function *)
 let () =
   let process_file = ref true in
@@ -289,6 +435,9 @@ let () =
   let type_check_only = ref false in
   let interpret = ref false in
   let run_type_tests = ref false in  (* New flag for running type checker tests *)
+  let list_tests = ref false in
+  let run_test_file = ref None in
+  let tokenize_only = ref false in  (* New flag for tokenization only *)
   
   Arg.parse [
     ("-test", Arg.Set run_test_cases, "Run built-in test cases");
@@ -297,11 +446,80 @@ let () =
     ("-check-only", Arg.Set type_check_only, "Only perform type checking on input file");
     ("-interpret", Arg.Set interpret, "Interpret the program after type checking");
     ("-test-type", Arg.Set run_type_tests, "Run type checker specific tests");  (* New option *)
+    ("-list-tests", Arg.Set list_tests, "List all .txt test files in the directory");
+    ("-run-test", Arg.String (fun s -> run_test_file := Some s), "Run specific test file (provide filename)");
+    ("-tokenize", Arg.Set tokenize_only, "Only tokenize the input file");  (* New option *)
   ] (fun _ -> ()) "Matrix/Vector Language Parser and Interpreter";
   
+  (* New functionality: If -list-tests is provided, list all .txt files and exit *)
+  if !list_tests then (
+    Printf.printf "Available .txt test files in this directory:\n";
+    Array.iter (fun file -> if Filename.check_suffix file ".txt" then Printf.printf "%s\n" file) (Sys.readdir ".");
+    exit 0
+  );
+  
+
   (* Run type checker tests if requested *)
   if !run_type_tests then run_type_check_tests();
   
+  (* Update the tokenize-only mode to use the new function *)
+  if !tokenize_only then
+    (match !run_test_file with
+    | Some f -> 
+        Printf.printf "Running tokenizer file: %s\n" f;
+        let _ = tokenize_parse_and_print_file f in
+        exit 0
+    | None ->
+        let input_file = "input.txt" in
+        let _ = tokenize_parse_and_print_file input_file in
+        exit 0);
+
+  (* New functionality: If -run-test <filename> is provided then process that file *)
+  (match !run_test_file with
+  | Some f ->
+      Printf.printf "Running test file: %s\n" f;
+      (try
+        let tokens = tokenize_file f in
+        Printf.printf "Lexing completed successfully.\n";
+        
+        let ast = parse_tokens tokens in
+        Printf.printf "Parsing completed successfully.\n";
+        
+        if !interpret then begin
+          let result = type_check ast in
+          if is_error_message(result) then begin
+            Printf.printf "Type Check: ❌ %s\n" result;
+            exit 1
+          end else begin
+            Printf.printf "Type Check: ✅ %s\n" result;
+            Printf.printf "Executing program:\n";
+            Interpreter.interpret ast;
+            Printf.printf "\nExecution complete.\n";
+          end
+        end else if !type_check_only || !with_type_check then begin
+          let result = type_check ast in
+          if is_error_message(result) then begin
+            Printf.printf "Type Check: ❌ %s\n" result;
+            exit 1
+          end else begin
+            Printf.printf "Type Check: ✅ %s\n" result;
+            let ast_string = string_of_program ast in
+            Printf.printf "AST representation:\n%s\n" ast_string;
+          end
+        end else begin
+          let ast_string = string_of_program ast in
+          Printf.printf "AST representation:\n%s\n" ast_string;
+        end;
+        exit 0
+      with
+      | Failure msg ->
+          Printf.printf "Error: %s\n" msg;
+          exit 1
+      | e ->
+          Printf.printf "Error: %s\n" (Printexc.to_string e);
+          exit 1)
+  | None -> ());
+
   if !run_test_cases then run_tests ~with_type_check:!with_type_check ~with_interpret:!interpret;
   
   if !process_file then
@@ -312,26 +530,46 @@ let () =
       
       Printf.printf "Parsing file: %s\n" input_file;
       
-      if !interpret then
-        parse_check_and_interpret_file input_file
-      else if !type_check_only || !with_type_check then
-        let ast = parse_and_check_file input_file in
-        if not !type_check_only then begin
-          (* Convert AST to string representation *)
-          Printf.printf "Converting AST to string representation\n";
-          let ast_string = string_of_program ast in
-          
-          (* Write AST to output file *)
-          Printf.printf "Writing AST to: %s\n" output_file;
-          let oc = open_out output_file in
-          output_string oc ast_string;
-          close_out oc;
-          
-          print_endline "Processing complete. AST written to output.txt"
-        end else
-          print_endline "Type checking complete."
-      else begin
-        let ast = parse_file input_file in
+      let tokens = tokenize_file input_file in
+      Printf.printf "Lexing completed successfully.\n";
+      
+      let ast = parse_tokens tokens in
+      Printf.printf "Parsing completed successfully.\n";
+      
+      if !interpret then begin
+        let result = type_check ast in
+        if is_error_message(result) then begin
+          Printf.printf "Type Check: ❌ %s\n" result;
+          exit 1
+        end else begin
+          Printf.printf "Type Check: ✅ %s\n" result;
+          Printf.printf "Executing program:\n";
+          Interpreter.interpret ast;
+          Printf.printf "\nExecution complete.\n";
+        end
+      end else if !type_check_only || !with_type_check then begin
+        let result = type_check ast in
+        if is_error_message(result) then begin
+          Printf.printf "Type Check: ❌ %s\n" result;
+          exit 1
+        end else begin
+          Printf.printf "Type Check: ✅ %s\n" result;
+          if not !type_check_only then begin
+            (* Convert AST to string representation *)
+            Printf.printf "Converting AST to string representation\n";
+            let ast_string = string_of_program ast in
+            
+            (* Write AST to output file *)
+            Printf.printf "Writing AST to: %s\n" output_file;
+            let oc = open_out output_file in
+            output_string oc ast_string;
+            close_out oc;
+            
+            print_endline "Processing complete. AST written to output.txt"
+          end else
+            print_endline "Type checking complete."
+        end
+      end else begin
         (* Convert AST to string representation *)
         Printf.printf "Converting AST to string representation\n";
         let ast_string = string_of_program ast in
@@ -354,4 +592,3 @@ let () =
     | e ->
         prerr_endline ("Unexpected error: " ^ Printexc.to_string e);
         exit 1
-

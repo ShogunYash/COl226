@@ -36,17 +36,18 @@ Print(z);
 
 // Vector and matrix declarations
 let v := 3
-[1, 2, 3];
+[1,2,3];
 Print("Vector v:");
 Print(v);
 
 // Nested scopes - for loop
 let sum := 0;
+let temp := 0;
 for i := 1 to 5 do {
   // let declarations inside loops
-  let temp := i * i;
+  temp := i * i;
   sum := sum + temp;
-}
+}end
 Print("Sum of squares:");
 Print(sum);
 
@@ -60,7 +61,7 @@ if a > 5 then {
   Print(b);
 } else {
   a := -1;
-}
+} end
 Print("After if:");
 Print(a);
 // This would cause an error if uncommented because b is not in scope
