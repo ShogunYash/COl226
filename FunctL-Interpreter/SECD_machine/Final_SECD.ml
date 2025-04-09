@@ -577,5 +577,18 @@ let () = display_result "max(3, 7) using Church encoding" (App(App(max_church, N
   let () = display_result "Church numeral 4" church_four 
   let () = display_result "2^3 using Church numerals as integer" 
     (App(church_to_int, App(App(church_exp, church_two), church_three)))  (* 8 *)
+  
+  (* Test 23: Fixed-point combinator for McCarthy 91 function *)
+  let mccarthy91_fun = 
+    Abs("f", Abs("n", 
+      IfThenElse(
+        GreaterT(Var "n", N 100),
+        Sub(Var "n", N 10),
+        App(Var "f", App(Var "f", Add(Var "n", N 11)))
+      )
+    )) 
     
+  let m91 = App(ycomb, mccarthy91_fun) 
+  let () = display_result "McCarthy 91 function applied to 95" (App(m91, N 95))  (* 91 *)
+  let () = display_result "McCarthy 91 function applied to 105" (App(m91, N 105))  (* 95 *)
   
