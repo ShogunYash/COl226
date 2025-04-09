@@ -1,7 +1,6 @@
-(* Define our abstract syntax for expressions.
-   We include variables, lambda-abstractions, applications,
-   integer and boolean constants, an if-then-else, and a plus operation. *)
-(* Extended abstract syntax for expressions *)
+(* Corrected SECD Machine Implementation in OCaml *)
+
+(* Expressions *)
 type expr =
   | Var of string
   | N of int
@@ -13,257 +12,288 @@ type expr =
   | Rem of expr * expr
   | Add of expr * expr
   | Mult of expr * expr
+  | Absolute of expr
+  | Negative of expr
   | GreaterT of expr * expr
   | GreaterTE of expr * expr
   | LessT of expr * expr
   | LessTE of expr * expr
   | Equals of expr * expr
   | Not of expr
-  | Absolute of expr
-  | Negative of expr
   | And of expr * expr
   | Or of expr * expr
   | IfThenElse of expr * expr * expr
 
- 
- (* A closure is a pair consisting of an expression and an environment.
-    The environment (env) is a list mapping variable names to closures.
-    Note: We assume here that terms are closed (or become closed during eval)
-    so that every variable reference is eventually found in the environment. *)
- and closure = Closure of expr * env
- and env = (string * closure) list
- 
- (* Substitution function.
-    Given an expression 'e', substitute free occurrences of variable 'x'
-    with expression 'v'. (This is used by unload below to “unpack” closures.) *)
-let rec subst (e : expr) (x : string) (v : expr) : expr =
-    match e with
-    | Var y -> if y = x then v else Var y
-    | Lam(y, e1) -> if y = x then Lam(y, e1) else Lam(y, subst e1 x v)
-    | App(e1, e2) -> App(subst e1 x v, subst e2 x v)
-    | N n -> N n
-    | B b -> B b
-    | Sub(e1, e2) -> Sub(subst e1 x v, subst e2 x v)
-    | Div(e1, e2) -> Div(subst e1 x v, subst e2 x v)
-    | Rem(e1, e2) -> Rem(subst e1 x v, subst e2 x v)
-    | Add(e1, e2) -> Add(subst e1 x v, subst e2 x v)
-    | Mult(e1, e2) -> Mult(subst e1 x v, subst e2 x v)
-    | GreaterT(e1,e2) -> GreaterT(subst e1 x v, subst e2 x v)
-    | GreaterTE(e1,e2) -> GreaterTE(subst e1 x v, subst e2 x v)
-    | LessT(e1,e2) -> LessT(subst e1 x v, subst e2 x v)
-    | LessTE(e1,e2) -> LessTE(subst e1 x v, subst e2 x v)
-    | Equals(e1,e2) -> Equals(subst e1 x v, subst e2 x v)
-    | Not e1 -> Not(subst e1 x v)
-    | Absolute e1 -> Absolute(subst e1 x v)
-    | Negative e1 -> Negative(subst e1 x v)
-    | And(e1,e2) -> And(subst e1 x v, subst e2 x v)
-    | Or(e1,e2) -> Or(subst e1 x v, subst e2 x v)
-    | IfThenElse(e1,e2,e3) -> IfThenElse(subst e1 x v, subst e2 x v, subst e3 x v)
+(* SECD opcodes *)
+type op =
+  | LOOKUP of string
+  | INT of int
+  | BOOL of bool
+  | MKCLOS of string * op list
+  | FCALLOP of op list * op list
+  | APP
+  | RET
+  | IFTEOP of op list * op list
+  | PLUSOP | MINUSOP | MULTOP | DIVOP | REMOP
+  | GTOP | GEQOP | LTOP | LEQOP | EQUALSOP
+  | NOTOP | ABSOLUTEOP | NEGATIVEOP
+  | CONJOP | DISJOP
 
- (* Unload function.
-    This function takes a closure (which may “hide” an environment) and recursively
-    substitutes for each bound variable from the environment so that the resulting
-    expression no longer carries an environment. *)
- let rec unload (Closure(e, env)) : expr =
-   let rec aux e env =
-     match env with
-     | [] -> e
-     | (x, cl) :: rest ->
-         let e' = aux e rest in
-         let v = unload cl in
-         subst e' x v
-   in
-   aux e env
- 
- (* The Krivine machine (call-by-name) evaluator.
-    It takes a closure and an argument stack (a list of closures). The rules follow:
-    (1) If we have an application node, we “push” the argument closure and
-        continue evaluating the function part.
-    (2) For a variable, we look up its binding in the environment.
-    (3) For an abstraction, if a closure is waiting on the stack,
-        we bind the formal parameter to the (unevaluated) argument (call-by-name)
-        and then proceed with the body.
-    (4) For built-in constants like Int and Bool, if no further application is pending,
-        they are final; otherwise, an error is raised.
-    (5) The If and Add nodes are handled by forcing evaluation (with an empty stack)
-        of the condition and operands, respectively. *)
-let rec krivine (cl : closure) (stack : closure list) : closure =
-  match cl with
-  | Closure(Var x, env) ->
-    (try
-      let cl' = List.assoc x env in
-      krivine cl' stack
-    with Not_found ->
-      failwith ("Unbound variable: " ^ x))
-  | Closure(App(e1, e2), env) ->
-      krivine (Closure(e1, env)) (Closure(e2, env) :: stack)
-  | Closure(Lam(x, e), env) ->
-      (match stack with
-        | arg_cl :: rest ->
-            let new_env = (x, arg_cl) :: env in
-            krivine (Closure(e, new_env)) rest
-        | [] -> cl)
-  | Closure(N n, _) ->
-      (match stack with [] -> cl | _ -> failwith "Attempt to apply an integer as a function")
-  | Closure(B b, _) ->
-      (match stack with [] -> cl | _ -> failwith "Attempt to apply a boolean as a function")
-  | Closure(Sub(e1, e2), env) ->
-      let cl1 = krivine (Closure(e1, env)) [] in
-      let cl2 = krivine (Closure(e2, env)) [] in
-      (match (cl1, cl2) with
-        | (Closure(N n1, _), Closure(N n2, _)) ->
-            krivine (Closure(N (n1 - n2), env)) stack
-        | _ -> failwith "Subtraction applied to non-integer values")
-  | Closure(Div(e1, e2), env) ->
-      let cl1 = krivine (Closure(e1, env)) [] in
-      let cl2 = krivine (Closure(e2, env)) [] in
-      (match (cl1, cl2) with
-        | (Closure(N n1, _), Closure(N n2, _)) when n2 <> 0 ->
-            krivine (Closure(N (n1 / n2), env)) stack
-        | _ -> failwith "Division applied to non-integers or division by zero")
-  | Closure(Rem(e1, e2), env) ->
-      let cl1 = krivine (Closure(e1, env)) [] in
-      let cl2 = krivine (Closure(e2, env)) [] in
-      (match (cl1, cl2) with
-        | (Closure(N n1, _), Closure(N n2, _)) when n2 <> 0 ->
-            krivine (Closure(N (n1 mod n2), env)) stack
-        | _ -> failwith "Remainder applied to non-integers or division by zero")
-  | Closure(Add(e1, e2), env) ->
-      let cl1 = krivine (Closure(e1, env)) [] in
-      let cl2 = krivine (Closure(e2, env)) [] in
-      (match (cl1, cl2) with
-        | (Closure(N n1, _), Closure(N n2, _)) ->
-            krivine (Closure(N (n1 + n2), env)) stack
-        | _ -> failwith "Addition applied to non-integer values")
-  | Closure(Mult(e1, e2), env) ->
-      let cl1 = krivine (Closure(e1, env)) [] in
-      let cl2 = krivine (Closure(e2, env)) [] in
-      (match (cl1, cl2) with
-        | (Closure(N n1, _), Closure(N n2, _)) ->
-            krivine (Closure(N (n1 * n2), env)) stack
-        | _ -> failwith "Multiplication applied to non-integer values")
-  | Closure(GreaterT(e1, e2), env) ->
-      let cl1 = krivine (Closure(e1, env)) [] in
-      let cl2 = krivine (Closure(e2, env)) [] in
-      (match (cl1, cl2) with
-        | (Closure(N n1, _), Closure(N n2, _)) ->
-            krivine (Closure(B (n1 > n2), env)) stack
-        | _ -> failwith "Greater-than applied to non-integer values")
-  | Closure(GreaterTE(e1, e2), env) ->
-      let cl1 = krivine (Closure(e1, env)) [] in
-      let cl2 = krivine (Closure(e2, env)) [] in
-      (match (cl1, cl2) with
-        | (Closure(N n1, _), Closure(N n2, _)) ->
-            krivine (Closure(B (n1 >= n2), env)) stack
-        | _ -> failwith "Greater-than-or-equal applied to non-integer values")
-  | Closure(LessT(e1, e2), env) ->
-      let cl1 = krivine (Closure(e1, env)) [] in
-      let cl2 = krivine (Closure(e2, env)) [] in
-      (match (cl1, cl2) with
-        | (Closure(N n1, _), Closure(N n2, _)) ->
-            krivine (Closure(B (n1 < n2), env)) stack
-        | _ -> failwith "Less-than applied to non-integer values")
-  | Closure(LessTE(e1, e2), env) ->
-      let cl1 = krivine (Closure(e1, env)) [] in
-      let cl2 = krivine (Closure(e2, env)) [] in
-      (match (cl1, cl2) with
-        | (Closure(N n1, _), Closure(N n2, _)) ->
-            krivine (Closure(B (n1 <= n2), env)) stack
-        | _ -> failwith "Less-than-or-equal applied to non-integer values")
-  | Closure(Equals(e1, e2), env) ->
-      let cl1 = krivine (Closure(e1, env)) [] in
-      let cl2 = krivine (Closure(e2, env)) [] in
-      (match (cl1, cl2) with
-        | (Closure(N n1, _), Closure(N n2, _)) ->
-            krivine (Closure(B (n1 = n2), env)) stack
-        | (Closure(B b1, _), Closure(B b2, _)) ->
-            krivine (Closure(B (b1 = b2), env)) stack
-        | _ -> failwith "Equality applied to incomparable values")
-  | Closure(Not e, env) ->
-      let cl1 = krivine (Closure(e, env)) [] in
-      (match cl1 with
-        | Closure(B b, _) -> krivine (Closure(B (not b), env)) stack
-        | _ -> failwith "Not applied to a non-boolean value")
-  | Closure(Absolute e, env) ->
-      let cl1 = krivine (Closure(e, env)) [] in
-      (match cl1 with
-        | Closure(N n, _) -> krivine (Closure(N (abs n), env)) stack
-        | _ -> failwith "Absolute applied to a non-integer value")
-  | Closure(Negative e, env) ->
-      let cl1 = krivine (Closure(e, env)) [] in
-      (match cl1 with
-        | Closure(N n, _) -> krivine (Closure(N (-n), env)) stack
-        | _ -> failwith "Negative applied to a non-integer value")
-  | Closure(And(e1, e2), env) ->
-      let cl1 = krivine (Closure(e1, env)) [] in
-      let cl2 = krivine (Closure(e2, env)) [] in
-      (match (cl1, cl2) with
-        | (Closure(B b1, _), Closure(B b2, _)) ->
-            krivine (Closure(B (b1 && b2), env)) stack
-        | _ -> failwith "And applied to non-boolean values")
-  | Closure(Or(e1, e2), env) ->
-      let cl1 = krivine (Closure(e1, env)) [] in
-      let cl2 = krivine (Closure(e2, env)) [] in
-      (match (cl1, cl2) with
-        | (Closure(B b1, _), Closure(B b2, _)) ->
-            krivine (Closure(B (b1 || b2), env)) stack
-        | _ -> failwith "Or applied to non-boolean values")
-  | Closure(IfThenElse(e1, e2, e3), env) ->
-      let cond_cl = krivine (Closure(e1, env)) [] in
-      (match cond_cl with
-        | Closure(B true, _) -> krivine (Closure(e2, env)) stack
-        | Closure(B false, _) -> krivine (Closure(e3, env)) stack
-        | _ -> failwith "IfThenElse condition did not evaluate to a boolean")
- 
- (* A helper function to kick off evaluation.
-    It starts from an expression with an empty environment and an empty argument stack. *)
- let eval (e : expr) : closure =
-   krivine (Closure(e, [])) []
- 
- (* A simple pretty-printer for expressions.
-    This helps us see the results after unloading closures. *)
- let rec expr_to_string (e : expr) : string =
-   match e with
-   | Var x -> x
-   | Lam(x, e1) -> "(\\" ^ x ^ ". " ^ (expr_to_string e1) ^ ")"
-   | App(e1, e2) -> "(" ^ (expr_to_string e1) ^ " " ^ (expr_to_string e2) ^ ")"
-   | N n -> string_of_int n
-   | B b -> string_of_bool b
-   | Sub(e1, e2) -> "(" ^ (expr_to_string e1) ^ " - " ^ (expr_to_string e2) ^ ")"
-   | Div(e1, e2) -> "(" ^ (expr_to_string e1) ^ " / " ^ (expr_to_string e2) ^ ")"
-   | Rem(e1, e2) -> "(" ^ (expr_to_string e1) ^ " % " ^ (expr_to_string e2) ^ ")"
-   | Add(e1, e2) -> "(" ^ (expr_to_string e1) ^ " + " ^ (expr_to_string e2) ^ ")"
-   | Mult(e1, e2) -> "(" ^ (expr_to_string e1) ^ " * " ^ (expr_to_string e2) ^ ")"
-   | GreaterT(e1, e2) -> "(" ^ (expr_to_string e1) ^ " > " ^ (expr_to_string e2) ^ ")"
-   | GreaterTE(e1, e2) -> "(" ^ (expr_to_string e1) ^ " >= " ^ (expr_to_string e2) ^ ")"
-   | LessT(e1, e2) -> "(" ^ (expr_to_string e1) ^ " < " ^ (expr_to_string e2) ^ ")"
-   | LessTE(e1, e2) -> "(" ^ (expr_to_string e1) ^ " <= " ^ (expr_to_string e2) ^ ")"
-   | Equals(e1, e2) -> "(" ^ (expr_to_string e1) ^ " = " ^ (expr_to_string e2) ^ ")"
-   | Not e1 -> "not " ^ (expr_to_string e1)
-   | Absolute e1 -> "abs " ^ (expr_to_string e1)
-   | Negative e1 -> "-" ^ (expr_to_string e1)
-   | And(e1, e2) -> "(" ^ (expr_to_string e1) ^ " && " ^ (expr_to_string e2) ^ ")"
-   | Or(e1, e2) -> "(" ^ (expr_to_string e1) ^ " || " ^ (expr_to_string e2) ^ ")"
-   | IfThenElse(e1, e2, e3) ->
-      "if " ^ (expr_to_string e1) ^ " then " ^ (expr_to_string e2) ^
-      " else " ^ (expr_to_string e3)
+(* Runtime values *)
+type value =
+  | NumVal of int
+  | BoolVal of bool
+  | FuncVal of string * op list * table  (* closure: param, body code, env *)
 
-(* A function to print the result of evaluation. *)
-let run (e : expr) =
-  let result_cl = eval e in
-  let result_expr = unload result_cl in
-  match result_expr with
-  | N n -> Printf.printf "Result: %d\n" n
-  | B b -> Printf.printf "Result: %b\n" b
-  | _ -> Printf.printf "Result: %s\n" (expr_to_string result_expr)
+and stack_token = VClose of value * table
+and table = (string * stack_token) list
+
+exception StackError of string
+exception ValueError of string
+exception OpError of string
+
+let rec lookupTable x tbl =
+  match tbl with
+  | [] -> raise (ValueError "Variable not found")
+  | (y, v) :: rest -> if x = y then v else lookupTable x rest
+
+let augment tbl x v =
+  let rec aux acc = function
+    | [] -> List.rev ((x, v) :: acc)
+    | (y, w) :: rest when y = x -> List.rev_append acc ((x, v) :: rest)
+    | pair :: rest -> aux (pair :: acc) rest
+  in aux [] tbl
+
+(* Compiler *)
+let rec compile e =
+  match e with
+  | Var x -> [LOOKUP x]
+  | N n -> [INT n]
+  | B b -> [BOOL b]
+  | Lam(x,body) -> [MKCLOS(x, compile body @ [RET])]
+  | App(f,a) -> [FCALLOP(compile f, compile a)]
+  | Sub (a,b) -> compile a @ compile b @ [MINUSOP]
+  | Div (a,b) -> compile a @ compile b @ [DIVOP]
+  | Rem (a,b) -> compile a @ compile b @ [REMOP]
+  | Add (a,b) -> compile a @ compile b @ [PLUSOP]
+  | Mult (a,b) -> compile a @ compile b @ [MULTOP]
+  | GreaterT (a,b) -> compile a @ compile b @ [GTOP]
+  | GreaterTE(a,b) -> compile a @ compile b @ [GEQOP]
+  | LessT   (a,b) -> compile a @ compile b @ [LTOP]
+  | LessTE  (a,b) -> compile a @ compile b @ [LEQOP]
+  | Equals  (a,b) -> compile a @ compile b @ [EQUALSOP]
+  | Not e1 -> compile e1 @ [NOTOP]
+  | Absolute e1 -> compile e1 @ [ABSOLUTEOP]
+  | Negative e1 -> compile e1 @ [NEGATIVEOP]
+  | And (a,b) -> compile a @ compile b @ [CONJOP]
+  | Or  (a,b) -> compile a @ compile b @ [DISJOP]
+  | IfThenElse(c,t,e2) -> compile c @ [IFTEOP(compile t, compile e2)]
+
+(* SECD interpreter *)
+let rec secd stack env code dump =
+  match code with
+  | [] -> (
+      match stack with
+      | VClose(v,_) :: [] -> v
+      | _ -> raise (StackError "Expected single value on stack at end")
+    )
+  | op :: rest ->
+    (match op with
+     | INT n -> secd (VClose(NumVal n, env)::stack) env rest dump
+     | BOOL b -> secd (VClose(BoolVal b, env)::stack) env rest dump
+     | LOOKUP x ->
+         let VClose(v, tbl') = lookupTable x env in
+         let tbl'' = augment tbl' x (VClose(v,tbl')) in
+         let env' = augment env x (VClose(v,tbl')) in
+         secd (VClose(v, tbl'')::stack) env' rest dump
+     | PLUSOP ->
+         (match stack with
+          | VClose(NumVal n2,_) :: VClose(NumVal n1,_) :: tl ->
+              secd (VClose(NumVal(n1+n2),env)::tl) env rest dump
+          | _ -> raise (StackError "PLUS expects two ints"))
+     | MINUSOP ->
+         (match stack with
+          | VClose(NumVal n2,_) :: VClose(NumVal n1,_) :: tl ->
+              secd (VClose(NumVal(n1-n2),env)::tl) env rest dump
+          | _ -> raise (StackError "MINUS expects two ints"))
+     | MULTOP ->
+         (match stack with
+          | VClose(NumVal n2,_) :: VClose(NumVal n1,_) :: tl ->
+              secd (VClose(NumVal(n1*n2),env)::tl) env rest dump
+          | _ -> raise (StackError "MULT expects two ints"))
+     | DIVOP ->
+         (match stack with
+          | VClose(NumVal n2,_) :: VClose(NumVal n1,_) :: tl when n2<>0 ->
+              secd (VClose(NumVal(n1/n2),env)::tl) env rest dump
+          | _ -> raise (StackError "DIV expects two ints and non-zero divisor"))
+     | REMOP ->
+         (match stack with
+          | VClose(NumVal n2,_) :: VClose(NumVal n1,_) :: tl when n2<>0 ->
+              secd (VClose(NumVal(n1 mod n2),env)::tl) env rest dump
+          | _ -> raise (StackError "REM expects two ints and non-zero divisor"))
+     | NOTOP ->
+         (match stack with
+          | VClose(BoolVal b,_) :: tl -> secd (VClose(BoolVal(not b),env)::tl) env rest dump
+          | _ -> raise (StackError "NOT expects a bool"))
+     | ABSOLUTEOP ->
+         (match stack with
+          | VClose(NumVal n,_) :: tl -> secd (VClose(NumVal(abs n),env)::tl) env rest dump
+          | _ -> raise (StackError "ABS expects an int"))
+     | NEGATIVEOP ->
+         (match stack with
+          | VClose(NumVal n,_) :: tl -> secd (VClose(NumVal(-n),env)::tl) env rest dump
+          | _ -> raise (StackError "NEG expects an int"))
+     | CONJOP ->
+         (match stack with
+          | VClose(BoolVal b2,_) :: VClose(BoolVal b1,_) :: tl ->
+              secd (VClose(BoolVal(b1 && b2),env)::tl) env rest dump
+          | _ -> raise (StackError "AND expects two bools"))
+     | DISJOP ->
+         (match stack with
+          | VClose(BoolVal b2,_) :: VClose(BoolVal b1,_) :: tl ->
+              secd (VClose(BoolVal(b1 || b2),env)::tl) env rest dump
+          | _ -> raise (StackError "OR expects two bools"))
+     | GTOP ->
+         (match stack with
+          | VClose(NumVal n2,_) :: VClose(NumVal n1,_) :: tl ->
+              secd (VClose(BoolVal(n1>n2),env)::tl) env rest dump
+          | _ -> raise (StackError "GT expects two ints"))
+     | GEQOP ->
+         (match stack with
+          | VClose(NumVal n2,_) :: VClose(NumVal n1,_) :: tl ->
+              secd (VClose(BoolVal(n1>=n2),env)::tl) env rest dump
+          | _ -> raise (StackError "GEQ expects two ints"))
+     | LTOP ->
+         (match stack with
+          | VClose(NumVal n2,_) :: VClose(NumVal n1,_) :: tl ->
+              secd (VClose(BoolVal(n1<n2),env)::tl) env rest dump
+          | _ -> raise (StackError "LT expects two ints"))
+     | LEQOP ->
+         (match stack with
+          | VClose(NumVal n2,_) :: VClose(NumVal n1,_) :: tl ->
+              secd (VClose(BoolVal(n1<=n2),env)::tl) env rest dump
+          | _ -> raise (StackError "LEQ expects two ints"))
+     | EQUALSOP ->
+         (match stack with
+          | VClose(NumVal n2,_) :: VClose(NumVal n1,_) :: tl ->
+              secd (VClose(BoolVal(n1=n2),env)::tl) env rest dump
+          | _ -> raise (StackError "EQUALS expects two ints"))
+     | IFTEOP(c1,c2) ->
+         (match stack with
+          | VClose(BoolVal b,_) :: tl ->
+              let next = if b then c1 @ rest else c2 @ rest in
+              secd tl env next dump
+          | _ -> raise (StackError "IFTE expects a bool"))
+     | MKCLOS(x,body) ->
+         secd (VClose(FuncVal(x,body,env),env)::stack) env rest dump
+     | FCALLOP(cf,ca) ->
+         secd stack env (cf @ ca @ [APP] @ rest) dump
+     | APP ->
+         (match stack with
+          | VClose(v,_) :: VClose(FuncVal(x,body,env_clo),_) :: tl ->
+              let env' = augment env_clo x (VClose(v,env_clo)) in
+              secd [] env' body ((tl,env,rest)::dump)
+          | _ -> raise (StackError "APP expects closure and argument"))
+     | RET ->
+         (match stack, dump with
+          | VClose(v,_)::[], (s_old,e_old,c_old)::ds ->
+              secd (VClose(v,e_old)::s_old) e_old c_old ds
+          | _ -> raise (OpError "OpCode Error")) )
+
+let rec ans_to_string = function
+  | NumVal n -> string_of_int n
+  | BoolVal b -> string_of_bool b
+  | FuncVal(param, code, env) ->
+      let rec op_list_to_string ops =
+        match ops with
+        | [] -> ""
+        | [op] -> op_to_string op
+        | op::rest -> op_to_string op ^ "; " ^ op_list_to_string rest
+      and op_to_string = function
+        | LOOKUP x -> "LOOKUP \"" ^ x ^ "\""
+        | INT n -> "INT " ^ string_of_int n
+        | BOOL b -> "BOOL " ^ string_of_bool b
+        | MKCLOS(x, body) -> "\\(" ^ x ^ " -> ...)"
+        | FCALLOP(_, _) -> "FCALLOP(...)"
+        | APP -> "APP"
+        | RET -> "RET"
+        | IFTEOP(_, _) -> "IFTEOP(...)"
+        | PLUSOP -> "+"
+        | MINUSOP -> "-"
+        | MULTOP -> "*"
+        | DIVOP -> "/"
+        | REMOP -> "%"
+        | GTOP -> ">"
+        | GEQOP -> ">="
+        | LTOP -> "<"
+        | LEQOP -> "<="
+        | EQUALSOP -> "="
+        | NOTOP -> "NOT"
+        | ABSOLUTEOP -> "ABS"
+        | NEGATIVEOP -> "NEG"
+        | CONJOP -> "AND"
+        | DISJOP -> "OR"
+      in
+      let env_str = 
+        String.concat ", " 
+          (List.map (fun (var, _) -> var) env)
+      in
+      "\\" ^ param ^ "." ^ 
+      "[" ^ op_list_to_string code ^ "]" ^ 
+      "{env: [" ^ env_str ^ "]}" 
+
+(* Test harness *)
+let run e =
+  let code = compile e in
+  let result = secd [] [] code [] in
+  let () = Printf.printf "Result: %s\n" (ans_to_string result) in
+  result
 
 (* Helper function to display results with more detail *)
 let display_result name expr =
-  let result_cl = eval expr in
-  let result_expr = unload result_cl in
+  let code = compile expr in
+  let result = secd [] [] code [] in
   Printf.printf "\n=== Test: %s ===\n" name;
-  Printf.printf "Result: %s\n" (expr_to_string result_expr)
+  Printf.printf "Result: %s\n" (ans_to_string result)
 
+(* Sample tests *)
+(* let () =
+  let _ = run (App(Lam("x", Var "x"), N 5)) in          (* => 5 *)
+  let _ = run (App(App(Lam("x", Lam("y", Var "x")), B true), B false)) in   (* => true *)
+  let _ = run (IfThenElse(GreaterT(N 3,N 2), N 10, N 20)) in  (* => 10 *)
+  let _ = run (Add(N 2, Mult(N 3, N 4))) in                 (* => 14 *)
+  let _ = run (App(Lam("x", Add(Var "x", N 1)), N 41)) in  (* => 42 *)
+  
+  (* Define factorial *)
+  let factorial =
+    App (
+      Lam ("f", Lam ("n",
+        IfThenElse (
+          Equals (Var "n", N 0),
+          N 1,
+          Mult (
+            Var "n",
+            App (App (Var "f", Var "f"), Sub (Var "n", N 1))
+          )
+        )
+      )),
+      Lam ("f", Lam ("n",
+        IfThenElse (
+          Equals (Var "n", N 0),
+          N 1,
+          Mult (
+            Var "n",
+            App (App (Var "f", Var "f"), Sub (Var "n", N 1))
+          )
+        )
+      ))
+    )
+  in
+  
+  display_result "Factorial 6" (App(factorial, N 6));  => 720 *)
+
+  (* Test 0: Basic arithmetic operations *)
+  (* Test 1: Identity function - λx.x *)
 (* Test 1: Identity function - λx.x *)
 let identity = Lam("x", Var "x")
 let () = display_result "Identity function" identity
