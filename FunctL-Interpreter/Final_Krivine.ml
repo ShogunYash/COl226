@@ -521,3 +521,83 @@ let max_church =
 
 let () = display_result "max(8, 5) using Church encoding" (App(App(max_church, N 8), N 5))  (* 8 *)
 let () = display_result "max(3, 7) using Church encoding" (App(App(max_church, N 3), N 7))  (* 7 *)
+
+(* NEW TEST CASES BELOW *)
+
+(* Test 21: GCD using Y-combinator *)
+let gcd_fun = 
+  Abs("f", Abs("a", Abs("b",
+    IfThenElse(
+      Equals(Var "b", N 0),
+      Var "a",
+      App(App(Var "f", Var "b"), Rem(Var "a", Var "b"))
+    )
+  ))) 
+
+let gcd = App(ycomb, gcd_fun) 
+let () =  display_result "GCD of 48 and 18" (App(App(gcd, N 48), N 18))  (* 6 *)
+let () =  display_result "GCD of 35 and 49" (App(App(gcd, N 35), N 49))  (* 7 *)
+
+(* Test 22: Church numeral exponentiation *)
+let church_exp = 
+  Abs("m", Abs("n", App(Var "n", Var "m"))) 
+  
+let church_four = App(church_succ, church_three) 
+let () = display_result "Church numeral 4" church_four 
+let () = display_result "2^3 using Church numerals as integer" 
+  (App(church_to_int, App(App(church_exp, church_two), church_three)))  (* 8 *)
+
+(* Test 23: Fixed-point combinator for McCarthy 91 function *)
+let mccarthy91_fun = 
+  Abs("f", Abs("n", 
+    IfThenElse(
+      GreaterT(Var "n", N 100),
+      Sub(Var "n", N 10),
+      App(Var "f", App(Var "f", Add(Var "n", N 11)))
+    )
+  )) 
+  
+let m91 = App(ycomb, mccarthy91_fun) 
+let () = display_result "McCarthy 91 function applied to 95" (App(m91, N 95))  (* 91 *)
+let () = display_result "McCarthy 91 function applied to 105" (App(m91, N 105))  (* 95 *)
+
+(* Test 24: SKKI combinator (identity function) *)
+let s_comb = Abs("x", Abs("y", Abs("z", App(App(Var "x", Var "z"), App(Var "y", Var "z"))))) 
+let k_comb = Abs("x", Abs("y", Var "x")) 
+let i_comb = App(App(s_comb, k_comb), k_comb) 
+
+let () = display_result "I combinator applied to 42" (App(i_comb, N 42))  (* 42 *)
+
+(* Test 25: Church numeral subtraction *)
+let church_sub = 
+  Abs("m", Abs("n", 
+    App(App(Var "n", church_pred), Var "m"))) 
+    
+let () = display_result "3 - 1 using Church numerals as integer" 
+  (App(church_to_int, App(App(church_sub, church_three), church_one))) (* 2 *)
+
+(* Test 26: Boolean operations using only lambda calculus *)
+let lambda_xor = 
+  Abs("p", Abs("q", 
+    App(App(Var "p", App(church_not, Var "q")), Var "q"))) 
+    
+let test_xor_tf = App(App(lambda_xor, church_true), church_false) 
+let test_xor_tt = App(App(lambda_xor, church_true), church_true) 
+
+let () = display_result "true XOR false using Church booleans" 
+  (App(App(test_xor_tf, B true), B false)) (* true *)
+let () = display_result "true XOR true using Church booleans" 
+  (App(App(test_xor_tt, B true), B false)) (* false *)
+
+(* Test 27: Selection sort using Y-combinator - minFunction *)
+let min_fun = 
+  Abs("f", Abs("a", Abs("b",
+    IfThenElse(
+      LessT(Var "a", Var "b"),
+      Var "a",
+      Var "b")
+  ))) 
+  
+let min = App(ycomb, min_fun) 
+let () = display_result "min(8, 5)" (App(App(min, N 8), N 5))  (* 5 *)
+let () = display_result "min(3, 7)" (App(App(min, N 3), N 7))  (* 3 *)
