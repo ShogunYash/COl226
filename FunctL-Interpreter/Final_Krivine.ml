@@ -601,3 +601,8 @@ let min_fun =
 let min = App(ycomb, min_fun) 
 let () = display_result "min(8, 5)" (App(App(min, N 8), N 5))  (* 5 *)
 let () = display_result "min(3, 7)" (App(App(min, N 3), N 7))  (* 3 *)
+
+
+let omega = App(Lam("x", App(Var "x", Var "x")), Lam("x", App(Var "x", Var "x"))) 
+let ignore_first = Lam("x", Lam("y", Var "y")) 
+let () = display_result "Lazy evaluation" (App((App(ignore_first, omega)), N 42))

@@ -176,6 +176,10 @@ let rec type_check_expr env = function
       | Det, TIMatrix(r, c) when r = c -> TInt  (* Determinant requires square matrix *)
       | Det, TFMatrix(r, c) when r = c -> TFloat
       
+      (* Adjoint requires a square matrix and returns a matrix of the same dimensions *)
+      | Adjoint, TIMatrix(r, c) when r = c -> TIMatrix(r, c)  
+      | Adjoint, TFMatrix(r, c) when r = c -> TFMatrix(r, c)
+      
       | Dimension, TIVector _ -> TInt
       | Dimension, TFVector _ -> TInt
       | Dimension, TIMatrix(_, _) -> TIVector 2 

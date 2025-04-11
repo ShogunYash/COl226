@@ -185,25 +185,20 @@ module MatrixOps = struct
     in
     aux 0 []
 
-  let multiply_int_matrices r1 c1 mat1 r2 c2 mat2 =
-    if c1 <> r2 then
-      raise (Runtime_error "Matrix multiplication dimension mismatch")
-    else
-      let rec compute_result_matrix i acc =
-        if i = r1 then List.rev acc
-        else
-          let row_i = get_row mat1 i in
-          let rec compute_row j row_acc =
-            if j = c2 then List.rev row_acc
-            else
-              let col_j = get_column mat2 j in
-              compute_row (j+1) ((VectorOps.dot_product_int row_i col_j)::row_acc)
-          in
-          let result_row = compute_row 0 [] in
-          compute_result_matrix (i+1) (result_row::acc)
-      in
-      VIMatrix(r1, c2, compute_result_matrix 0 [])
+  (* A safer, self‑contained transpose *)
+  let transpose mat = 
+    match mat with
+    | [] -> []
+    | first_row::_ ->
+      let n_cols = List.length first_row in
+      List.init n_cols (fun col_idx ->
+        List.map (fun row ->
+          try List.nth row col_idx
+          with _ -> raise (Runtime_error (Printf.sprintf "transpose: row length mismatch at column %d" col_idx))
+        ) mat
+      )
 
+  (* Improved implementation of multiply_float_matrices with better error handling *)
   let multiply_float_matrices r1 c1 mat1 r2 c2 mat2 =
     if c1 <> r2 then
       raise (Runtime_error "Matrix multiplication dimension mismatch")
@@ -222,6 +217,26 @@ module MatrixOps = struct
           compute_result_matrix (i+1) (result_row::acc)
       in
       VFMatrix(r1, c2, compute_result_matrix 0 [])
+      
+  (* Improved implementation of multiply_int_matrices with similar approach *)
+  let multiply_int_matrices r1 c1 mat1 r2 c2 mat2 =
+    if c1 <> r2 then
+      raise (Runtime_error "Matrix multiplication dimension mismatch")
+    else
+      let rec compute_result_matrix i acc =
+        if i = r1 then List.rev acc
+        else
+          let row_i = get_row mat1 i in
+          let rec compute_row j row_acc =
+            if j = c2 then List.rev row_acc
+            else
+              let col_j = get_column mat2 j in
+              compute_row (j+1) ((VectorOps.dot_product_int row_i col_j)::row_acc)
+          in
+          let result_row = compute_row 0 [] in
+          compute_result_matrix (i+1) (result_row::acc)
+      in
+      VIMatrix(r1, c2, compute_result_matrix 0 [])
 
   let multiply_matrix_vector_int r c mat vec n =
     if c <> n then
@@ -329,6 +344,39 @@ module MatrixOps = struct
   let determinant_float_matrix r c mat =
     if r <> c then raise (Runtime_error "Determinant requires a square matrix")
     else VFloat (calculate_float_determinant mat)
+
+
+  let compute_int_adjoint r c mat =
+    if r <> c then raise (Runtime_error "Adjoint requires a square matrix")
+    else
+      (* build r×r cofactor matrix *)
+      let cofactor =
+        List.init r (fun i ->
+          List.init r (fun j ->
+            let minor = get_submatrix mat i j in
+            let sign = if (i + j) mod 2 = 0 then 1 else -1 in
+            sign * calculate_int_determinant minor
+          )
+        )
+      in
+      (* transpose it safely *)
+      let adj = transpose cofactor in
+      VIMatrix(r, r, adj)
+
+  let compute_float_adjoint r c mat =
+    if r <> c then raise (Runtime_error "Adjoint requires a square matrix")
+    else
+      let cofactor =
+        List.init r (fun i ->
+          List.init r (fun j ->
+            let minor = get_submatrix mat i j in
+            let sign = if (i + j) mod 2 = 0 then 1.0 else -1.0 in
+            sign *. calculate_float_determinant minor
+          )
+        )
+      in
+      let adj = transpose cofactor in
+      VFMatrix(r, r, adj)
 end
 
 (* Pretty-print values *)
@@ -534,12 +582,19 @@ let rec eval_expr env = function
       | Abs, VInt i -> VInt (abs i)
       | Abs, VFloat f -> VFloat (abs_float f)
       
-      | Transpose, VIMatrix(r, c, mat) ->  VIMatrix(c, r, build_transpose mat c)
-          
-      | Transpose, VFMatrix(r, c, mat) -> VFMatrix(c, r, build_transpose mat c)
+      (* Modified transpose handling to fix dimension issues *)
+      | Transpose, VIMatrix(r, c, mat) ->  VIMatrix(c, r, transpose mat)
+      
+      | Transpose, VFMatrix(r, c, mat) -> VFMatrix(c, r, transpose mat)
+
+
+      (* Determinant and Adjoint *)
           
       | Det, VIMatrix(r, c, mat) -> determinant_int_matrix r c mat
       | Det, VFMatrix(r, c, mat) -> determinant_float_matrix r c mat
+
+      | Adjoint, VIMatrix(r, c, mat) -> compute_int_adjoint r c mat
+      | Adjoint, VFMatrix(r, c, mat) -> compute_float_adjoint r c mat
             
       | Dimension, VIVector(n, _) -> VInt n
       | Dimension, VFVector(n, _) -> VInt n

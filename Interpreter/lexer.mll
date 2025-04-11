@@ -103,6 +103,7 @@ rule token = parse
   | "mag"       { MAGNITUDE }
   | "row_access"{ ROW_ACCESS }
   | "angle"     { ANGLE }
+  | "adj"       { ADJOINT }
   | "("         { LPAREN }
   | ")"         { RPAREN }
   | "["         { LBRACKET }

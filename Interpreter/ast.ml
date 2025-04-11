@@ -34,7 +34,8 @@ type unary_op =
   | Det        (** Matrix determinant (det) *)
   | Dimension  (** Vector/Matrix dimension (dim) *)
   | Magnitude  (** Vector magnitude (mag) *)
-  | I2F       (** Integer to float conversion *)
+  | Adjoint    (** Matrix adjoint (adj) *)
+  | I2F        (** Integer to float conversion *)
 
 (** Expression types *)
 type expr =
@@ -53,7 +54,7 @@ type expr =
   | VectorIndex of expr * expr              (** Vector indexing (vector[index]) *)
   | MatrixIndex of expr * expr * expr       (** Matrix indexing (matrix[row,col]) *)
   | RowAccess of expr * expr                (** Row access (matrix,row]) *)
-  
+
 (** Statement types *)
 type stmt =
   | ExprStmt of expr                        (** Expression statement *)
@@ -108,7 +109,8 @@ let rec string_of_expr expr =
       "UnOp (" ^ 
       (match op with
         | INeg -> "INeg" | FNeg -> "FNeg" | Not -> "Not" | Abs -> "Abs"
-        | Transpose -> "Transpose" | Det -> "Det" | Dimension -> "Dimension" | Magnitude -> "Magnitude" | I2F -> "I2F") ^ 
+        | Transpose -> "Transpose" | Det -> "Det" | Dimension -> "Dimension" 
+        | Magnitude -> "Magnitude" | I2F -> "I2F" | Adjoint -> "Adjoint") ^ 
       ", " ^ string_of_expr expr ^ ")"
   | VectorIndex (vec, idx) ->
       "VectorIndex (" ^ string_of_expr vec ^ ", " ^ string_of_expr idx ^ ")"
@@ -141,7 +143,6 @@ let rec string_of_stmt stmt =
       "[" ^ String.concat "; " (List.map string_of_stmt body) ^ "])"
   | InputStmt expr -> "InputStmt (" ^ string_of_expr expr ^ ")"
   | PrintStmt expr -> "PrintStmt (" ^ string_of_expr expr ^ ")"
-
 
 let string_of_program (Program stmts) =
   "Program [" ^ String.concat "; " (List.map string_of_stmt stmts) ^ "]"
