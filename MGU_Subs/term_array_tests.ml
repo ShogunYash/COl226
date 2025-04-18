@@ -82,35 +82,114 @@ let t_nested = Node (("+", 2), [| V "z"; t_right |])
 
 (* Test functions *)
 let testsignature () =
+  Printf.printf "=== Signature Tests ===\n";
+  Printf.printf "Test 1: Valid signature with unique symbols and non-negative arities\n";
+  Printf.printf "Expected: Valid Signature\n";
   test_sig 1 signature1;
+  
+  Printf.printf "Test 2: Another valid signature\n";
+  Printf.printf "Expected: Valid Signature\n";
   test_sig 2 signature2;
-  test_sig 3 signature3
+  
+  Printf.printf "Test 3: Valid signature with different symbols\n";
+  Printf.printf "Expected: Valid Signature\n";
+  test_sig 3 signature3;
+  Printf.printf "\n"
 
 let testwfterm () =
+  Printf.printf "=== Well-Formed Term Tests ===\n";
+  Printf.printf "Test 1: Term '(x+1)+0' with signature1\n";
+  Printf.printf "Expected: Valid Term\n";
   test_wfterm 1 signature1 tree1;
+  
+  Printf.printf "Test 2: Term '1+(0*x)' with signature2\n";
+  Printf.printf "Expected: Valid Term\n";
   test_wfterm 2 signature2 tree2;
-  test_wfterm 3 signature3 tree3
+  
+  Printf.printf "Test 3: Term '(y/sin(cos(z)))-2' with signature3\n";
+  Printf.printf "Expected: Valid Term\n";
+  test_wfterm 3 signature3 tree3;
+  Printf.printf "\n"
 
 let testHtSizeVars () =
+  Printf.printf "=== Height, Size, Variables Tests ===\n";
+  
+  Printf.printf "Test 1: (x+1)+0\n";
+  Printf.printf "Expected: Height=3, Size=5, Vars=x\n";
   test_ht_size_vars 1 tree1;
+  
+  Printf.printf "Test 2: 1+(0*x)\n";
+  Printf.printf "Expected: Height=3, Size=5, Vars=x\n";
   test_ht_size_vars 2 tree2;
+  
+  Printf.printf "Test 3: (y/sin(cos(z)))-2\n";
+  Printf.printf "Expected: Height=4, Size=7, Vars=y, z\n";
   test_ht_size_vars 3 tree3;
+  
+  Printf.printf "Test 4: x (variable)\n";
+  Printf.printf "Expected: Height=0, Size=1, Vars=x\n";
   test_ht_size_vars 4 t1;
+  
+  Printf.printf "Test 5: x (variable, same as Test 4)\n";
+  Printf.printf "Expected: Height=0, Size=1, Vars=x\n";
   test_ht_size_vars 5 t2;
+  
+  Printf.printf "Test 6: x (variable)\n";
+  Printf.printf "Expected: Height=0, Size=1, Vars=x\n";
   test_ht_size_vars 6 t3;
+  
+  Printf.printf "Test 7: y (variable)\n";
+  Printf.printf "Expected: Height=0, Size=1, Vars=y\n";
   test_ht_size_vars 7 t4;
+  
+  Printf.printf "Test 8: x (variable)\n";
+  Printf.printf "Expected: Height=0, Size=1, Vars=x\n";
   test_ht_size_vars 8 t5;
+  
+  Printf.printf "Test 9: f (constant)\n";
+  Printf.printf "Expected: Height=1, Size=1, Vars=none\n";
   test_ht_size_vars 9 t6;
+  
+  Printf.printf "Test 10: g(a,b)\n";
+  Printf.printf "Expected: Height=1, Size=3, Vars=a, b\n";
   test_ht_size_vars 10 t7;
+  
+  Printf.printf "Test 11: g(a,b) (same as Test 10)\n";
+  Printf.printf "Expected: Height=1, Size=3, Vars=a, b\n";
   test_ht_size_vars 11 t8;
+  
+  Printf.printf "Test 12: h(x,y)\n";
+  Printf.printf "Expected: Height=1, Size=3, Vars=x, y\n";
   test_ht_size_vars 12 t9;
+  
+  Printf.printf "Test 13: h(z,w)\n";
+  Printf.printf "Expected: Height=1, Size=3, Vars=z, w\n";
   test_ht_size_vars 13 t10;
+  
+  Printf.printf "Test 14: i(x)\n";
+  Printf.printf "Expected: Height=1, Size=2, Vars=x\n";
   test_ht_size_vars 14 t11;
+  
+  Printf.printf "Test 15: i(y(x))\n";
+  Printf.printf "Expected: Height=2, Size=3, Vars=x\n";
   test_ht_size_vars 15 t12;
+  
+  Printf.printf "Test 16: i(x)\n";
+  Printf.printf "Expected: Height=1, Size=2, Vars=x\n";
   test_ht_size_vars 16 t13;
+  
+  Printf.printf "Test 17: i(y,z)\n";
+  Printf.printf "Expected: Height=1, Size=3, Vars=y, z\n";
   test_ht_size_vars 17 t14;
+  
+  Printf.printf "Test 18: i(x,y)\n";
+  Printf.printf "Expected: Height=1, Size=3, Vars=x, y\n";
   test_ht_size_vars 18 t15;
-  test_ht_size_vars 19 t16
+  
+  Printf.printf "Test 19: i(i(z),w)\n";
+  Printf.printf "Expected: Height=2, Size=4, Vars=z, w\n";
+  test_ht_size_vars 19 t16;
+  Printf.printf "\n"
 
 let testmgu () =
   test_mgu 1 t1 t2;
@@ -242,5 +321,5 @@ let () =
   test_wfterm 2 sign2 t_wrong;
   test_ht_size_vars 3 t_right;
   print_term (mirror t_nested);
-  Printf.printf "\ntesting mgu\n\n";
+  Printf.printf "\n=============== Testing MGU ===============\n\n";
   testmgu ()

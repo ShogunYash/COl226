@@ -1,0 +1,60 @@
+# Byte-compiled and other build artifacts
+*.cm[xioa]
+*.cmx
+*.cmo
+*.cmi
+*.cmt
+*.cmti
+*.o
+*.annot
+
+# Native and bytecode executables
+*.byte
+*.native
+*.exe
+
+# OCaml Toplevel
+*.top
+
+# Dune and build-related
+_build/
+.install/
+.dune/
+dune-project.lock
+
+# OPAM files and environment
+.opam/
+*.opam
+*.opam.locked
+
+# Merlin editor support
+.merlin
+.merlin-*
+
+# Utop
+.utop-history
+
+# OCaml LSP cache
+.ocamlformat
+.ocamlformat-ignore
+.ocamllsp/
+
+# Logs and debugging
+*.log
+*.trace
+
+# Misc
+*.swp
+*.bak
+*~
+
+# VSCode
+.vscode/
+
+# Emacs
+*#*
+.#*
+
+# JetBrains IDEs
+.idea/
+*.iml
