@@ -231,7 +231,7 @@ let test_edit () =
   Printf.printf "\n"
 
 (* Test mirroring functionality *)
-let test_mirror () =
+(* let test_mirror () =
   Printf.printf "=== Mirror Tests ===\n";
   
   (* Mirror a simple term *)
@@ -274,7 +274,7 @@ let test_mirror () =
   Printf.printf "Expected: Original: (f[x; g[a; h[b]; c]]), Mirrored: (f[g[c; h[b]; a]; x])\n";
   Printf.printf "Actual: Original: %s, Mirrored: %s\n\n" 
     (string_of_term uneven) (string_of_term uneven_mirror);
-  Printf.printf "\n"
+  Printf.printf "\n" *)
 
 (* Run all additional tests *)
 let () =
@@ -286,7 +286,7 @@ let () =
   test_advanced_mgu ();
   test_in_place_subst ();
   test_edit ();
-  test_mirror ();
+  (* test_mirror (); *)
 
   Printf.printf "===================================\n";
   Printf.printf "ALL ADDITIONAL TESTS COMPLETED\n";

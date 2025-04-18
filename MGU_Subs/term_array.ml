@@ -174,7 +174,7 @@ module Term = struct
     replace t
 
   (* Mirror a term (reverse the order of children at each node) *)
-  let rec mirror (t: term) : term =
+  (* let rec mirror (t: term) : term =
     match t with
     | V v -> V v
     | Node (sym, children) ->
@@ -183,7 +183,7 @@ module Term = struct
         for i = 0 to len - 1 do
           new_children.(i) <- mirror children.(len - 1 - i)
         done;
-        Node (sym, new_children)
+        Node (sym, new_children) *)
         
   (* Convert a term to a string representation *)
   let rec string_of_term (t: term) : string =
