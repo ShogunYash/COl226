@@ -172,18 +172,6 @@ module Term = struct
           done
     in
     replace t
-
-  (* Mirror a term (reverse the order of children at each node) *)
-  (* let rec mirror (t: term) : term =
-    match t with
-    | V v -> V v
-    | Node (sym, children) ->
-        let len = Array.length children in
-        let new_children = Array.make len (V "") in
-        for i = 0 to len - 1 do
-          new_children.(i) <- mirror children.(len - 1 - i)
-        done;
-        Node (sym, new_children) *)
         
   (* Convert a term to a string representation *)
   let rec string_of_term (t: term) : string =

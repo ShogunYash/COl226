@@ -230,52 +230,6 @@ let test_edit () =
   Printf.printf "Actual: Deep edit result: %s\n\n" (string_of_term deep_edit);
   Printf.printf "\n"
 
-(* Test mirroring functionality *)
-(* let test_mirror () =
-  Printf.printf "=== Mirror Tests ===\n";
-  
-  (* Mirror a simple term *)
-  let simple = Node (("+", 2), [| V "x"; V "y" |]) in
-  let simple_mirror = mirror simple in
-  
-  Printf.printf "Test 113: Simple mirror\n";
-  Printf.printf "Expected: Original: (+[x; y]), Mirrored: (+[y; x])\n";
-  Printf.printf "Actual: Original: %s, Mirrored: %s\n\n" 
-    (string_of_term simple) (string_of_term simple_mirror);
-  
-  (* Mirror a complex term *)
-  let complex = Node (("f", 3), [|
-    V "x"; 
-    Node (("g", 2), [| V "y"; V "z" |]);
-    Node (("h", 2), [| V "a"; V "b" |])
-  |]) in
-  
-  let complex_mirror = mirror complex in
-  
-  Printf.printf "Test 114: Complex mirror\n";
-  Printf.printf "Expected: Original: (f[x; g[y; z]; h[a; b]]), Mirrored: (f[h[a; b]; g[y; z]; x])\n";
-  Printf.printf "Expected: Also note children within g and h should be mirrored: (f[h[b; a]; g[z; y]; x])\n";
-  Printf.printf "Actual: Original: %s, Mirrored: %s\n\n" 
-    (string_of_term complex) (string_of_term complex_mirror);
-  
-  (* Mirror a term with uneven depth *)
-  let uneven = Node (("f", 2), [|
-    V "x";
-    Node (("g", 3), [| 
-      V "a"; 
-      Node (("h", 1), [| V "b" |]);
-      V "c"
-    |])
-  |]) in
-  
-  let uneven_mirror = mirror uneven in
-  
-  Printf.printf "Test 115: Uneven depth mirror\n";
-  Printf.printf "Expected: Original: (f[x; g[a; h[b]; c]]), Mirrored: (f[g[c; h[b]; a]; x])\n";
-  Printf.printf "Actual: Original: %s, Mirrored: %s\n\n" 
-    (string_of_term uneven) (string_of_term uneven_mirror);
-  Printf.printf "\n" *)
-
 (* Run all additional tests *)
 let () =
   Printf.printf "\n===================================\n";
@@ -286,7 +240,6 @@ let () =
   test_advanced_mgu ();
   test_in_place_subst ();
   test_edit ();
-  (* test_mirror (); *)
 
   Printf.printf "===================================\n";
   Printf.printf "ALL ADDITIONAL TESTS COMPLETED\n";
