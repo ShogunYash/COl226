@@ -242,6 +242,24 @@ module Term = struct
   let test_subst (n: int) (sub: substitution) (t: term) : unit =
     Printf.printf "Testcase %d\n%s\n\n" n (string_of_term (subst sub t))
   
+  (* Test the edit function *)
+  let test_edit (n: int) (t: term) (pos: int list) (new_sub: term) : unit =
+    try
+      let result = edit t pos new_sub in
+      Printf.printf "Test Case: %d\nEdit successful.\nOriginal: %s\nPosition: %s\nNew subtree: %s\nResult: %s\n\n" 
+        n (string_of_term t) (String.concat "." (List.map string_of_int pos)) 
+        (string_of_term new_sub) (string_of_term result)
+    with Failure msg ->
+      Printf.printf "Test Case: %d\nEdit failed: %s\n\n" n msg
+
+  (* Test the in-place substitution function *)
+  let test_subst_in_place (n: int) (t: term) (sigma: substitution) : unit =
+    let t_copy = subst [] t in  (* Create a deep copy of t *)
+    Printf.printf "Test Case: %d\nIn-place substitution\nOriginal: %s\nSubstitution: %s\n" 
+      n (string_of_term t_copy) (string_of_sigma sigma);
+    subst_in_place sigma t_copy;
+    Printf.printf "Result: %s\n\n" (string_of_term t_copy)
+  
   (* Print a term with indentation *)
   let print_term (t: term) : unit =
     let rec print_t indent t =
