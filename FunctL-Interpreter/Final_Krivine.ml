@@ -94,7 +94,12 @@ let rec krivine (cl : closure) (stack : closure list) : closure =
       let cl' = List.assoc x env in
       krivine cl' stack
     with Not_found ->
-      failwith ("Unbound variable: " ^ x))
+      match stack with
+      | [] -> Closure(Var x, [])
+      | _ -> krivine (Closure(Var x, [])) stack)
+      (* return variable with variable name if not Found*)
+      (* write code to return variable*)
+      (* failwith ("Unbound variable: " ^ x)) *)
   | Closure(App(e1, e2), env) ->
       krivine (Closure(e1, env)) (Closure(e2, env) :: stack)
   | Closure(Lam(x, e), env) ->
@@ -606,3 +611,65 @@ let () = display_result "min(3, 7)" (App(App(min, N 3), N 7))  (* 3 *)
 let omega = App(Lam("x", App(Var "x", Var "x")), Lam("x", App(Var "x", Var "x"))) 
 let ignore_first = Lam("x", Lam("y", Var "y")) 
 let () = display_result "Lazy evaluation" (App((App(ignore_first, omega)), N 42))
+
+(* ---------- TEST FRAMEWORK ---------- *)
+
+let test_case name f =
+  try
+    f ();
+    Printf.printf "Test '%s' passed!\n" name
+  with
+  | Assert_failure _ ->
+      Printf.printf "Test '%s' FAILED (assertion failure)!\n" name
+  | e ->
+      Printf.printf "Test '%s' FAILED with exception: %s\n" name (Printexc.to_string e)
+
+let test_krivine_var_lookup () =
+  let env = [("x", Closure(Var "x", []))] in
+  let cl = Closure(Var "x", env) in
+  let result = krivine cl [] in
+  assert (expr_to_string (unload result) = "x")
+
+let test_krivine_identity_function () =
+  let id = Lam("x", Var "x") in
+  let env = [("y", Closure(Var "y", []))] in
+  let cl = Closure(App(id, Var "y"), env) in
+  let result = krivine cl [] in
+  assert (expr_to_string (unload result) = "y")
+
+let test_krivine_nested_lambda () =
+  let term = App(Lam("x", Lam("y", Var "x")), Var "z") in
+  let env = [("z", Closure(Var "z", []))] in
+  let cl = Closure(term, env) in
+  let result = krivine cl [] in
+  match unload result with
+  | Lam("y", Var "z") -> ()
+  | _ -> assert false
+
+let test_krivine_application_of_functions () =
+  let f = Lam("x", App(Var "x", Var "x")) in
+  let arg = Lam("y", Var "y") in
+  let env = [] in
+  let term = App(f, arg) in
+  let cl = Closure(term, env) in
+  let result = krivine cl [] in
+  match unload result with
+  | Lam("y", Var "y") -> ()
+  | _ -> assert false
+
+let test_krivine_free_variable () =
+  let term = Lam("x", Var "y") in
+  let env = [("z", Closure(Var "z", []))] in
+  let cl = Closure(App(term, Var "z"), env) in
+  let result = krivine cl [] in
+  match unload result with
+  | Var "y" -> ()
+  | _ -> assert false
+  
+let () =
+  (* Krivine Tests *)
+  test_case "Krivine Var Lookup" test_krivine_var_lookup;
+  test_case "Krivine Identity Function" test_krivine_identity_function;
+  test_case "Krivine Nested Lambda" test_krivine_nested_lambda;
+  test_case "Krivine Application of Functions" test_krivine_application_of_functions;
+  test_case "Krivine Free Variable" test_krivine_free_variable

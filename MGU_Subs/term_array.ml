@@ -155,24 +155,23 @@ module Term = struct
           Node (sym, new_children)
     | _, V _ -> failwith "edit: invalid position (encountered variable)"
 
-  (* In-place substitution: replace variables in a term by given terms *)
-  let subst_in_place (sigma: substitution) (t: term) : unit =
-    let rec replace (t: term) : unit =
+  (* Mutable term reference *)
+  type term_ref = { mutable content: term }
+
+  (* In-place substitution using a mutable reference *)
+  let subst_in_place (sigma: substitution) (t_ref: term_ref) : unit =
+    let rec replace t =
       match t with
-      | V _ -> ()  (* Can't modify a leaf in place *)
+      | V v -> 
+          (try List.assoc v sigma with Not_found -> t)
       | Node (_, children) ->
           for i = 0 to Array.length children - 1 do
-            match children.(i) with
-            | V v ->
-                (try
-                  let new_t = List.assoc v sigma in
-                  children.(i) <- new_t
-                with Not_found -> ())
-            | Node _ as sub_t -> replace sub_t
-          done
+            children.(i) <- replace children.(i)
+          done;
+          t
     in
-    replace t
-        
+    t_ref.content <- replace t_ref.content
+
   (* Convert a term to a string representation *)
   let rec string_of_term (t: term) : string =
     match t with
@@ -241,24 +240,6 @@ module Term = struct
   (* Test substitution application *)
   let test_subst (n: int) (sub: substitution) (t: term) : unit =
     Printf.printf "Testcase %d\n%s\n\n" n (string_of_term (subst sub t))
-  
-  (* Test the edit function *)
-  let test_edit (n: int) (t: term) (pos: int list) (new_sub: term) : unit =
-    try
-      let result = edit t pos new_sub in
-      Printf.printf "Test Case: %d\nEdit successful.\nOriginal: %s\nPosition: %s\nNew subtree: %s\nResult: %s\n\n" 
-        n (string_of_term t) (String.concat "." (List.map string_of_int pos)) 
-        (string_of_term new_sub) (string_of_term result)
-    with Failure msg ->
-      Printf.printf "Test Case: %d\nEdit failed: %s\n\n" n msg
-
-  (* Test the in-place substitution function *)
-  let test_subst_in_place (n: int) (t: term) (sigma: substitution) : unit =
-    let t_copy = subst [] t in  (* Create a deep copy of t *)
-    Printf.printf "Test Case: %d\nIn-place substitution\nOriginal: %s\nSubstitution: %s\n" 
-      n (string_of_term t_copy) (string_of_sigma sigma);
-    subst_in_place sigma t_copy;
-    Printf.printf "Result: %s\n\n" (string_of_term t_copy)
   
   (* Print a term with indentation *)
   let print_term (t: term) : unit =

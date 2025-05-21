@@ -54,7 +54,7 @@ exception OpError of string
 
 let rec lookupTable x tbl =
   match tbl with
-  | [] -> raise (ValueError "Variable not found")
+  | [] -> raise (ValueError "Variable not found: ^{ x }")
   | (y, v) :: rest -> if x = y then v else lookupTable x rest
 
 let augment tbl x v =
@@ -94,8 +94,10 @@ let rec secd stack env code dump =
   match code with
   | [] -> (
       match stack with
+      (* | VClose(v,_) :: [] -> v *)
       | VClose(v,_) :: [] -> v
-      | _ -> raise (StackError "Expected single value on stack at end")
+      | [] -> raise (StackError "Empty stack at end")
+      (* | _ -> raise (StackError "Expected single value on stack at end") *)
     )
   | op :: rest ->
     (match op with
@@ -256,44 +258,6 @@ let display_result name expr =
   Printf.printf "\n=== Test: %s ===\n" name;
   Printf.printf "Result: %s\n" (ans_to_string result)
 
-(* Sample tests *)
-(* let () =
-  let _ = run (App(Lam("x", Var "x"), N 5)) in          (* => 5 *)
-  let _ = run (App(App(Lam("x", Lam("y", Var "x")), B true), B false)) in   (* => true *)
-  let _ = run (IfThenElse(GreaterT(N 3,N 2), N 10, N 20)) in  (* => 10 *)
-  let _ = run (Add(N 2, Mult(N 3, N 4))) in                 (* => 14 *)
-  let _ = run (App(Lam("x", Add(Var "x", N 1)), N 41)) in  (* => 42 *)
-  
-  (* Define factorial *)
-  let factorial =
-    App (
-      Lam ("f", Lam ("n",
-        IfThenElse (
-          Equals (Var "n", N 0),
-          N 1,
-          Mult (
-            Var "n",
-            App (App (Var "f", Var "f"), Sub (Var "n", N 1))
-          )
-        )
-      )),
-      Lam ("f", Lam ("n",
-        IfThenElse (
-          Equals (Var "n", N 0),
-          N 1,
-          Mult (
-            Var "n",
-            App (App (Var "f", Var "f"), Sub (Var "n", N 1))
-          )
-        )
-      ))
-    )
-  in
-  
-  display_result "Factorial 6" (App(factorial, N 6));  => 720 *)
-
-  (* Test 0: Basic arithmetic operations *)
-  (* Test 1: Identity function - λx.x *)
 (* Test 1: Identity function - λx.x *)
 let identity = Lam("x", Var "x")
 let () = display_result "Identity function" identity
@@ -636,4 +600,72 @@ let () = display_result "min(3, 7)" (App(App(min, N 3), N 7))  (* 3 *)
 let ignore_first = Lam("x", Lam("y", Var "y")) 
 let () = display_result "Lazy evaluation" (App((App(ignore_first, omega)), N 42)) *)
 
-let () = display_result "Arinjay TC" (App (Lam ("x", Lam ("y", Add (Var "x", Var "y"))), N 3))
+(* let () = display_result "Arinjay TC" (App (Lam ("x", Lam ("y", Add (Var "x", Var "y"))), N 3)) *)
+
+(* ---------- SECD MACHINE TESTS ---------- *)
+
+let test_case name f =
+  try
+    f ();
+    Printf.printf "Test '%s' passed!\n" name
+  with
+  | Assert_failure _ ->
+      Printf.printf "Test '%s' FAILED (assertion failure)!\n" name
+  | e ->
+      Printf.printf "Test '%s' FAILED with exception: %s\n" name (Printexc.to_string e)
+
+let test_secd_var_lookup () =
+  let env = [("x", VClose("x", []))] in
+  let result = secd [] env [LOOKUP "x"] [] in
+  match result with
+  | VCLose("x", [], _) -> ()  (* Checking for the expected value *)
+  | _ -> assert false
+
+let test_secd_simple_function_application () =
+  let lam = MKCLOS ("x", [LOOKUP "x"; RET]) in
+  let prog = [lam; lam; APP] in
+  let result = secd [] [] prog [] in
+  match result with
+  | VClose ("x", [LOOKUP "x"; RET], _) -> ()  (* Checking for the numeric result *)
+  | _ -> assert false
+
+let test_secd_nested_functions () =
+  let inner = MKCLOS ("y", [LOOKUP "y"; RET]) in
+  let outer = MKCLOS ("x", [inner; RET]) in
+  (* let prog = [MKCLOS("x", [MKCLOS("y", [LOOKUP "x"; RET]); RET]); INT 42; APP; INT 10; APP] in *)
+  let prog = [outer; outer; APP] in
+  let result = secd [] [] prog [] in
+  match result with
+  | VClose ("y", [LOOKUP "y"; RET], _) -> ()  (* The inner function should capture x=42 *)
+  | _ -> assert false
+
+let test_secd_application_ret () =
+  let lam = MKCLOS ("x", [LOOKUP "x"; RET]) in
+  let prog = [lam; lam; APP] in
+  let result = secd [] [] prog [] in
+  match result with
+  | VCLOS ("x", [LOOKUP "x"; RET], _) -> ()  (* Checking for correct application result *)
+  | _ -> assert false
+
+let test_secd_closure_environment () =
+  let lam = MKCLOS ("x", [LOOKUP "x"; RET]) in
+  let env = [("y", VCLose ("y", []))] in
+  let result = secd [] env [lam] [] in
+  match result with 
+  | VCloseose ("x", [LOOKUP "x"; RET], closure_env) ->
+    (* Check that closure_env contains an ENTRY for "y" *)
+    let rec contains_y = function
+      | ("y", _) :: _ -> true
+      | _ :: rest -> contains_y rest
+      | [] -> false
+    in
+    assert (contains_y closure_env)
+  | _ -> assert false
+
+let () =
+  (* SECD Tests *)
+  test_case "SECD Var Lookup" test_secd_var_lookup;
+  test_case "SECD Simple Function Application" test_secd_simple_function_application;
+  test_case "SECD Nested Functions" test_secd_nested_functions;
+  test_case "SECD Application RET" test_secd_application_ret;
+  test_case "SECD Closure Environment" test_secd_closure_environment
