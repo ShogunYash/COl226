@@ -40,3 +40,9 @@ Clone this repository and navigate to its directory:
 ```bash
 git clone https://github.com/yourusername/your-repository.git
 cd your-repository
+```
+
+## Projects
+
+- Matrix/Vector Language Interpreter: A custom interpreter with a lexer, parser, and type checker for a domain-specific language supporting arithmetic, vector operations, and more.
+- Other Projects: Additional course projects documented here as they are completed.
